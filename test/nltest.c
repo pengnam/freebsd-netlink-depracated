@@ -23,12 +23,15 @@ static int
 do_open(int proto)
 {
 	struct sockaddr_nl a = { AF_NETLINK, 0 };
-	int i, s = socket(AF_NETLINK, SOCK_RAW, proto);
+	int s = socket(AF_NETLINK, SOCK_RAW, proto);
 	if (s < 0) {
 		D("open %d fails with error %d", proto, errno);
 		return s;
 	}
-	i = connect(s, (struct sockaddr *)&a, sizeof(a));
+	int i = connect(s, (struct sockaddr *)&a, sizeof(a));
+	if (i < 0) {
+		D("connect errno returns %d", errno);
+	}
 	D("connect returns %d pid %d", i, a.nl_pid);
 	return s;
 }
