@@ -41,6 +41,9 @@ MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 /*end */
 
 nl_handler nl_handlers[MAX_HANDLERS];
+//TODO: Consider shifting this to netlink socket
+#define nl_src_portid   so_fibnum
+#define nl_dst_portid   so_user_cookie
 
 /*Utility*/
 static int 
@@ -65,6 +68,7 @@ nl_abort(struct socket *so)
 	static int
 nl_attach(struct socket *so, int proto, struct thread *td)
 {
+	D("");
 	struct rawcb *rp;
 	int error;
 
@@ -84,8 +88,6 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 		free(rp, M_PCB);
 		return error;
 	}
-	//TODO: Check if this is to be called.Maybe no because we don't implement connect?
-	soisconnected(so);
 	so->so_options |= SO_USELOOPBACK;
 	return 0;
 }
@@ -97,25 +99,28 @@ nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 	static int
 nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
-	static uint32_t netlinkpids = 1; // XXX see above
+	D("");
 	struct sockaddr_nl *nla = (struct sockaddr_nl *)nam;
-	/* nam->sa_len is updated with the actual length in the syscall */
-
 	if (nla->nl_len != sizeof(*nla))
 		return EINVAL;
+ 	if (nla->nl_family != AF_NETLINK)
+		return EINVAL;
 
-	so->nl_src_portid = atomic_fetchadd_32(&netlinkpids, 1);
-	so->nl_dst_portid = nla->nl_pid; /* not used */
+	//TODO: Look at autobind to see how linux handles port *source* id assignment https://elixir.bootlin.com/linux/latest/source/net/netlink/af_netlink.c
+	// How source port ids should be addressed is here: https://man7.org/linux/man-pages/man7/netlink.7.html
+	so->nl_src_portid = 1;
+	so->nl_dst_portid = nla->nl_pid; 
 
-	ND("src_portid %d dst_portid %d", so->nl_src_portid, so->nl_dst_portid);
+	//TODO: Handle multicast and socket flags: refer to linux implementation
+
 	soisconnected(so);
-
 	return 0;
 }
 
 	static void
 nl_detach(struct socket *so)
 {
+	D("");
 
 	raw_usrreqs.pru_detach(so);
 }
@@ -123,6 +128,8 @@ nl_detach(struct socket *so)
 	static int
 nl_disconnect(struct socket *so)
 {
+	D("");
+	//TODO: Currently using rtsock
 	return (raw_usrreqs.pru_disconnect(so));
 }
 	static int
@@ -130,7 +137,8 @@ nl_peeraddr(struct socket *so, struct sockaddr **nam)
 {
 
 	D("");
-	return ENOTCONN;
+	//TODO: Currently using rtsock
+	return (raw_usrreqs.pru_peeraddr(so, nam));
 }
 	static int
 nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *   nam,
@@ -153,8 +161,18 @@ nl_shutdown(struct socket *so)
 	static int
 nl_sockaddr(struct socket *so, struct sockaddr **nam)
 {
-	D("");
+	struct sockaddr_nl *snl;
+
+	snl = malloc(sizeof *snl, M_SONAME, M_WAITOK | M_ZERO);
+	D("socket %p", so);
+	/* TODO: set other fields */
+	snl->nl_pid = so->so_fibnum;
+	snl->nl_len = sizeof(*snl);
+	snl->nl_family = AF_NETLINK;
+
+	*nam = (struct sockaddr *) snl;
 	return 0;
+
 }
 
 
@@ -168,13 +186,13 @@ nl_close(struct socket *so)
 
 /* netlink usrreqs*/
 static struct pr_usrreqs nl_usrreqs = {
-	.pru_abort =        soisdisconnected,
+	.pru_abort =        nl_abort,
 	.pru_attach =       nl_attach,
 	.pru_bind =     nl_bind,
 	.pru_connect =      nl_connect,   
-	.pru_detach =       nl_detach,//TODO
-	.pru_disconnect =   nl_disconnect,//TODO
-	.pru_peeraddr =     nl_peeraddr,//TODO   
+	.pru_detach =       nl_detach,
+	.pru_disconnect =   nl_disconnect,
+	.pru_peeraddr =     nl_peeraddr,
 	.pru_send =     nl_send,//TODO
 	.pru_shutdown =     nl_shutdown,//TODO
 	.pru_sockaddr =     nl_sockaddr,//TODO
