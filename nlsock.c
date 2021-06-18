@@ -28,6 +28,7 @@
 MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 
 
+//TODO: Change into proto to uint8 proto
 /*---- start debugging macros  */
 #define ND(format, ...)
 #define D(format, ...)                                          \
@@ -103,8 +104,8 @@ nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	struct sockaddr_nl *nla = (struct sockaddr_nl *)nam;
 	if (nla->nl_len != sizeof(*nla))
 		return EINVAL;
- 	if (nla->nl_family != AF_NETLINK)
-		return EINVAL;
+	//if (nla->nl_family != AF_NETLINK)
+	//	return EINVAL;
 
 	//TODO: Look at autobind to see how linux handles port *source* id assignment https://elixir.bootlin.com/linux/latest/source/net/netlink/af_netlink.c
 	// How source port ids should be addressed is here: https://man7.org/linux/man-pages/man7/netlink.7.html
@@ -201,16 +202,147 @@ static struct pr_usrreqs nl_usrreqs = {
 
 /* Protosw*/
 static int
-netlink_ctloutput(struct socket *so, struct sockopt *sopt) {
-	D("start");
+nl_ctloutput(struct socket *so, struct sockopt *sopt) {
+	D("");
+	//TODO:
 	return 0;
 }
 
-static int
-netlink_input(struct mbuf *m, struct socket *so, ...) {
-	D("start");
+/**
+ * off: offset for the start of next message
+ */
+static int 
+retrieve_message_length(int offset, struct mbuf *m) {
+	D("");
+	int total_length = m_length(m, NULL), message_length;
+
+	struct nlmsghdr hdr;
+	struct nlmsghdr *h = &hdr;
+
+	if (offset >= total_length || offset + NLMSG_HDRLEN) {
+		return 0;
+	}
+
+	// Copy data first 
+	m_copydata(m, offset, sizeof(hdr), (caddr_t) h);
+
+	message_length = h->nlmsg_len;
+
+	//  Ensure that message is right sized
+	if (message_length < NLMSG_HDRLEN || offset + message_length > total_length) {
+		return 0;
+	}
+	return message_length;
+}
+
+static void
+nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
+{
+	D("");
+	//struct mbuf *m;
+	//struct nlmsghdr * repnlh;
+
+	//struct nlmsgerr *errmsg;
+	//int payloadsize = sizeof(*errmsg);
+
+	//if (err)
+	//	payloadsize += nlmsg->nlmsg_len;
+	//
+	////m = nlmsg_new(payloadsize, M_WAITOK); //TODO: Add
+	//_M_NLPROTO(m) = proto;  //TODO: Check
+	//repnlh = (struct nlmsghdr *)_M_CUR(m);
+	//repnlh->nlmsg_type = NLMSG_ERROR;
+	//repnlh->nlmsg_flags = 0;
+	//repnlh->nlmsg_seq = nlmsg->nlmsg_seq;
+	//repnlh->nlmsg_pid = portid;
+	//m->m_pkthdr.len += NLMSG_HDRLEN;
+
+	//errmsg = (struct nlmsgerr *)_M_CUR(m);
+	//errmsg->error = err;
+	//m->m_pkthdr.len +=
+	//	NLMSG_ALIGN(err ?
+	//	nlmsg->nlmsg_len + sizeof(*errmsg) - sizeof(*nlmsg):
+	//	sizeof(*errmsg));
+	/* In case of error copy the whole message */
+	//memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
+
+	//nlmsg_end(m, repnlh);
+
+	/* I should call unicast, but it's the same */
+	//nlmsg_reply(m, NULL);
+}
+
+static int 
+reallocate_memory(char** buffer, int length, int* buffer_length) {
+	//TODO: Round bufferfer length to 1k?
+	if (*buffer != NULL) {
+		free(*buffer, M_NETLINK);
+	}
+	*buffer = malloc(length, M_NETLINK, M_NOWAIT|M_ZERO);
+	if (*buffer == NULL)  {
+		return ENOMEM;
+	}
+	*buffer_length = length; //TODO: Change if rounding buffer lenght up
 	return 0;
 }
+/*
+ * Processes an incoming packet
+ * Assumes that every packet header is within a single mbuf
+ */
+static int
+nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
+{
+	D("");
+	char *buffer = NULL;
+	int message_length = 0, offset = 0, buffer_length = 0, error = 0;
+	struct nlmsghdr hdr;
+	struct nlmsghdr *h = &hdr;
+	nl_handler handler = nl_handlers[proto];
+
+	while ((message_length = retrieve_message_length(offset, m))) {
+		if (buffer_length < message_length) {
+			if ((error = reallocate_memory(&buffer, message_length, &buffer_length))) {
+				return error;
+			}
+		}
+		m_copydata(m, offset, message_length, buffer);
+		h = (struct nlmsghdr *)buffer;
+		if (h->nlmsg_flags & NLM_F_REQUEST &&
+				h->nlmsg_type >= NLMSG_MIN_TYPE) {
+			error = handler((void *)h);
+		}
+
+		if (error != EINTR && (h->nlmsg_flags & NLM_F_ACK || error != 0))
+			nl_ack(proto, NETLINK_CB_PORT(m), h, error);
+
+		offset += NLMSG_ALIGN(message_length);
+	}
+	return 0;
+}
+
+
+static int
+nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...) {
+	D("");
+	struct rawcb *rp;
+	int proto;
+
+	if (m == NULL || ((m->m_len < sizeof(long)) &&
+				(m = m_pullup(m, sizeof(long))) == NULL))
+		return (ENOBUFS);
+	if ((m->m_flags & M_PKTHDR) == 0)
+		panic("netlink_output");
+
+	rp = sotorawcb(so);
+	proto = rp->rcb_proto.sp_protocol;
+	//TODO: Decide whether saving it in the mbuf header is the best 
+	//TODO: Figure netlink_skb
+	NETLINK_CB_PORT(m) = so->nl_src_portid;
+	nl_receive_packet(m, so, proto);
+	return 0;
+}
+
+
 
 
 static struct domain netlinkdomain; 
@@ -220,7 +352,9 @@ static struct protosw netlinksw[] = {
 		.pr_type =		SOCK_RAW,
 		.pr_domain =		&netlinkdomain,
 		.pr_flags =		PR_ATOMIC|PR_ADDR,
-		.pr_output =		netlink_input,
+		.pr_output =		nl_msg_to_netlink,
+		.pr_ctloutput =         nl_ctloutput,
+
 		.pr_init =		raw_init,
 		.pr_usrreqs =		&nl_usrreqs
 	}

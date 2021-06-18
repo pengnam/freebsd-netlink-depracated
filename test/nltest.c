@@ -19,6 +19,8 @@
                 __LINE__, __FUNCTION__, ##__VA_ARGS__);         \
         } while (0)
 
+char buf[65536];
+
 static int
 do_open(int proto)
 {
@@ -35,6 +37,25 @@ do_open(int proto)
 	D("connect returns %d pid %d", i, a.nl_pid);
 	return s;
 }
+static int
+do_write(int s, int l)
+{
+	struct nlmsghdr *n;
+
+	int ret;
+	if (s < 0 || l < 1 || l > sizeof(buf)) {
+		D("wrong arguments s %d len %d", s, l);
+		return -1;
+	}
+
+	n = (struct nlmsghdr *)buf;
+	n->nlmsg_len = l;
+	n->nlmsg_flags |= NLM_F_REQUEST | NLM_F_ACK;
+	n->nlmsg_type = NLMSG_MIN_TYPE; // force callback
+	ret = send(s, buf, l, 0);
+	D("send returns %d", ret);
+	return ret;
+}
 
 int
 main(int argc, char *argv[])
@@ -49,6 +70,7 @@ main(int argc, char *argv[])
 	}
 	s = do_open(x);
 	D("socket returns %d", s);
+	do_write(s, 16);
 
 	return 0;
 }
