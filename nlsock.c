@@ -141,13 +141,6 @@ nl_peeraddr(struct socket *so, struct sockaddr **nam)
 	//TODO: Currently using rtsock
 	return (raw_usrreqs.pru_peeraddr(so, nam));
 }
-	static int
-nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *   nam,
-		struct mbuf *control, struct thread *td)
-{
-	D("");
-	return 0;
-}
 
 	static int
 nl_shutdown(struct socket *so)
@@ -185,20 +178,6 @@ nl_close(struct socket *so)
 }
 
 
-/* netlink usrreqs*/
-static struct pr_usrreqs nl_usrreqs = {
-	.pru_abort =        nl_abort,
-	.pru_attach =       nl_attach,
-	.pru_bind =     nl_bind,
-	.pru_connect =      nl_connect,   
-	.pru_detach =       nl_detach,
-	.pru_disconnect =   nl_disconnect,
-	.pru_peeraddr =     nl_peeraddr,
-	.pru_send =     nl_send,//TODO
-	.pru_shutdown =     nl_shutdown,//TODO
-	.pru_sockaddr =     nl_sockaddr,//TODO
-	.pru_close =        nl_close 
-};
 
 /* Protosw*/
 static int
@@ -219,7 +198,8 @@ retrieve_message_length(int offset, struct mbuf *m) {
 	struct nlmsghdr hdr;
 	struct nlmsghdr *h = &hdr;
 
-	if (offset >= total_length || offset + NLMSG_HDRLEN) {
+	if (offset >= total_length || offset + NLMSG_HDRLEN > total_length) {
+		D("exit 1; total_length: %d; offset: %d, hdrlen: %d", total_length, offset, NLMSG_HDRLEN);
 		return 0;
 	}
 
@@ -230,6 +210,7 @@ retrieve_message_length(int offset, struct mbuf *m) {
 
 	//  Ensure that message is right sized
 	if (message_length < NLMSG_HDRLEN || offset + message_length > total_length) {
+		D("exit 2; total_length: %d; offset: %d; message_length: %d", total_length, offset, message_length);
 		return 0;
 	}
 	return message_length;
@@ -305,12 +286,15 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 				return error;
 			}
 		}
+		D("inside with meesage length(%d) and buffer length(%d)", message_length, buffer_length);
 		m_copydata(m, offset, message_length, buffer);
 		h = (struct nlmsghdr *)buffer;
 		if (h->nlmsg_flags & NLM_F_REQUEST &&
 				h->nlmsg_type >= NLMSG_MIN_TYPE) {
+			D("inside with msg type: %d", h->nlmsg_type);
 			error = handler((void *)h);
 		}
+		D("outside");
 
 		if (error != EINTR && (h->nlmsg_flags & NLM_F_ACK || error != 0))
 			nl_ack(proto, NETLINK_CB_PORT(m), h, error);
@@ -331,7 +315,7 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...) {
 				(m = m_pullup(m, sizeof(long))) == NULL))
 		return (ENOBUFS);
 	if ((m->m_flags & M_PKTHDR) == 0)
-		panic("netlink_output");
+		panic("nl_msg_to_netlink");
 
 	rp = sotorawcb(so);
 	proto = rp->rcb_proto.sp_protocol;
@@ -343,7 +327,28 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...) {
 }
 
 
+	static int
+nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *   nam,
+		struct mbuf *control, struct thread *td)
+{
+	D("");
+	return nl_msg_to_netlink(m, so);
+}
 
+/* netlink usrreqs*/
+static struct pr_usrreqs nl_usrreqs = {
+	.pru_abort =        nl_abort,
+	.pru_attach =       nl_attach,
+	.pru_bind =     nl_bind,
+	.pru_connect =      nl_connect,   
+	.pru_detach =       nl_detach,
+	.pru_disconnect =   nl_disconnect,
+	.pru_peeraddr =     nl_peeraddr,
+	.pru_send =     nl_send,
+	.pru_shutdown =     nl_shutdown,//TODO
+	.pru_sockaddr =     nl_sockaddr,//TODO
+	.pru_close =        nl_close 
+};
 
 static struct domain netlinkdomain; 
 
