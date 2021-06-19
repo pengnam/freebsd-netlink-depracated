@@ -52,8 +52,16 @@ verify_proto(int proto) {
 	if (proto < 0 || proto >= MAX_HANDLERS) {
 		return EINVAL;
 	}
-	int handler_defined = nl_handlers[proto] == NULL;
+	int handler_defined = nl_handlers[proto] != NULL;
 	return (handler_defined ? 0 : EPROTONOSUPPORT);
+}
+int 
+register_or_replace_handler(int proto, nl_handler handler) {
+	if (proto < 0 || proto >= MAX_HANDLERS) {
+		return EINVAL;
+	}
+	nl_handlers[proto] = handler;
+	return 0;
 }
 
 /*Start of usrreq struct handlers*/

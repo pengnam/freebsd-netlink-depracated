@@ -3,16 +3,7 @@
 
 #define AF_NETLINK 	38
 #define PF_NETLINK 	38
-/*
- * $FreeBSD$
- *
- * The user-visible API for netlink sockets.
- * These definitions are visible to userspace and kernel.
- * In linux similar content is in uapi/linux/netlink.h,
- * copied to /usr/include/linux/netlink.h with guard changed.
- * For simplicity, in FreeBSD we install both uapi_netlink.h and netlink.h
- * and kernel and userspace both include the latter.
- */
+
 
 #include <sys/types.h>
 #include <sys/socket.h>
