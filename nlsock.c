@@ -224,41 +224,41 @@ retrieve_message_length(int offset, struct mbuf *m) {
 	return message_length;
 }
 
+
 static void
 nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 {
 	D("");
-	//struct mbuf *m;
-	//struct nlmsghdr * repnlh;
+	struct mbuf *m;
+	struct nlmsghdr * repnlh;
 
-	//struct nlmsgerr *errmsg;
-	//int payloadsize = sizeof(*errmsg);
+	struct nlmsgerr *errmsg;
+	int payload = sizeof(*errmsg);
 
-	//if (err)
-	//	payloadsize += nlmsg->nlmsg_len;
-	//
-	////m = nlmsg_new(payloadsize, M_WAITOK); //TODO: Add
-	//_M_NLPROTO(m) = proto;  //TODO: Check
-	//repnlh = (struct nlmsghdr *)_M_CUR(m);
-	//repnlh->nlmsg_type = NLMSG_ERROR;
-	//repnlh->nlmsg_flags = 0;
-	//repnlh->nlmsg_seq = nlmsg->nlmsg_seq;
-	//repnlh->nlmsg_pid = portid;
-	//m->m_pkthdr.len += NLMSG_HDRLEN;
+	//TODO: handle NETLINK_F_EXT_ACK sockopt
+	//TODO: handle NETLINK_F_CAP_ACK sockopt look at linux
+	if (err)
+		payload += (nlmsg->nlmsg_len);
+	//TODO: handle cookies
 
-	//errmsg = (struct nlmsgerr *)_M_CUR(m);
-	//errmsg->error = err;
-	//m->m_pkthdr.len +=
-	//	NLMSG_ALIGN(err ?
-	//	nlmsg->nlmsg_len + sizeof(*errmsg) - sizeof(*nlmsg):
-	//	sizeof(*errmsg));
-	/* In case of error copy the whole message */
-	//memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
+	m = nlmsg_new(payload, M_WAITOK);
+	if (!m) {
+		//TODO: handle error
+		D("error allocating nlmsg");
+		return;
+	}
 
+	repnlh = nlmsg_put( m, portid, nlmsg->mlsg_seq, NLMSG_ERROR, payload, 0)
+
+	errmsg = (struct nlmsgerr *)nlmsg_data(m);
+	errmsg->error = err;
+	/* In case of error copy the whole message, else just the header */
+	memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
+	
+	m->m_pkthdr.len += NLMSG_ALIGN(payload);
+	//TODO: Not implemented as no need for now
 	//nlmsg_end(m, repnlh);
-
-	/* I should call unicast, but it's the same */
-	//nlmsg_reply(m, NULL);
+	nlmsg_reply(m, NULL);
 }
 
 static int 
