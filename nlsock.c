@@ -225,6 +225,13 @@ retrieve_message_length(int offset, struct mbuf *m) {
 }
 
 
+static int
+nl_send_msg(struct mbuf *m) {
+	// TODO: phase3: set to isrqueue
+	return 0;
+}
+
+
 static void
 nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 {
@@ -242,23 +249,28 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	//TODO: handle cookies
 
 	m = nlmsg_new(payload, M_WAITOK);
+	D("size of new mbuf: %d\n", m->m_len);
 	if (!m) {
 		//TODO: handle error
 		D("error allocating nlmsg");
 		return;
 	}
 
-	repnlh = nlmsg_put( m, portid, nlmsg->mlsg_seq, NLMSG_ERROR, payload, 0)
+	repnlh = nlmsg_put( m, portid, nlmsg->nlmsg_seq, NLMSG_ERROR, payload, 0);
+	if (repnlh == NULL) {
+		D("error putting values in new nlmsg");
+		return;
+	}
 
-	errmsg = (struct nlmsgerr *)nlmsg_data(m);
+	errmsg = (struct nlmsgerr *)nlmsg_data(repnlh);
 	errmsg->error = err;
 	/* In case of error copy the whole message, else just the header */
 	memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
 	
-	m->m_pkthdr.len += NLMSG_ALIGN(payload);
-	//TODO: Not implemented as no need for now
+	m->m_pkthdr.len = nlmsg_aligned_msg_size(payload);
+	//NOTE: Not implemented as no need for now
 	//nlmsg_end(m, repnlh);
-	nlmsg_reply(m, NULL);
+	nl_send_msg(m);
 }
 
 static int 

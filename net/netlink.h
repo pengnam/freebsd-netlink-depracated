@@ -43,22 +43,13 @@ register_or_replace_handler(int proto, nl_handler handle);
 
 //NLMSG AHELPERS
 //TODO: size_t
-static inline struct mbuf *nlmsg_new(int payload, int flags)
-{
-	struct mbuf *m;
-	//flags specify M_WAITOK or M_WAITNOTOK
-	m = mget_m(NULL, payload, flags, MT_DATA);
-	//TODO: Linear buffer 
-	return m;
-}
-
 static inline int nlmsg_msg_size(int payload) {
 	return NLMSG_HDRLEN + payload;
 }
-static inline int nlmsg_total_size(int payload) {
+static inline int nlmsg_aligned_msg_size(int payload) {
 	return NLMSG_ALIGN(nlmsg_msg_size(payload));
 }
-static inline void *nlmsg_data(const struct nlmsghdr *nlh)
+static inline void *nlmsg_data(struct nlmsghdr *nlh)
 {
 	return (unsigned char *) nlh + NLMSG_HDRLEN;
 }
@@ -68,26 +59,40 @@ static inline int nlmsg_payload_len(const struct nlmsghdr *nlh)
 {
 	return nlh->nlmsg_len - NLMSG_HDRLEN;
 }
+static inline struct mbuf *nlmsg_new(int payload, int flags)
+{
+	int size = nlmsg_aligned_msg_size(payload);
+	printf("allocated : %d\n", size);
+	//flags specify M_WAITOK or M_WAITNOTOK
+	//TODO: Linear buffer 
+	return m_getm(NULL, size, flags, MT_DATA);
+}
 
 
-static inline struct nlmsghdr *nlmsg_put(struct mbuf* m, u32 portid, u32 seq,
+
+static inline struct nlmsghdr *nlmsg_put(struct mbuf* m, int portid, int seq,
 					 int type, int payload, int flags)
 {
 	struct nlmsghdr *nlh;
 	int size = nlmsg_msg_size(payload);
-	//TODO: Figure out if this is right for linear buffer
-	m = m_pullup(m, size);
-	if (m == NULL) {
-		D("Error linearizing size");
-		return;
+	//TODO: Figure out why this didn't work
+	//m = m_pullup(m, size);
+	//if (m == NULL) {
+	//	printf("Error linearizing size | payload: %d | size: %d\n", payload, size);
+	//	return NULL;
+	//}
+	printf("payload: %d | size: %d\n", payload, size);
+	nlh = mtod(m, struct nlmsghdr *);
+	if (nlh == NULL) {
+		printf("Error at mtod");
+		return NULL;
 	}
-	nlh = mtod(m, (struct nlmsghdr));
 	nlh->nlmsg_type = type;
 	nlh->nlmsg_len = size;
 	nlh->nlmsg_pid = portid;
 	nlh->nlmsg_seq = seq;
 	if (NLMSG_ALIGN(size) - size != 0)
-		memset(nlmsg_data(nlh) + len, 0, NLMSG_ALIGN(size) - size);
+		memset((char*)nlmsg_data(nlh) + payload, 0, NLMSG_ALIGN(size) - size);
 	return nlh;
 }
 
