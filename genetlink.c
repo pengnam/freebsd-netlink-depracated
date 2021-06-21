@@ -8,24 +8,24 @@
 #include <sys/queue.h>
 #include <net/genetlink.h> 
 static int
-genetlink_receive_message(char *data)
+gnl__receive_message(char *data)
 {
 	return EOPNOTSUPP;
 }
 
 
 static void
-genetlinkload(void *u __unused)
+gnl_load(void *u __unused)
 {
 	//TODO: initialize
-	register_or_replace_handler(NETLINK_GENERIC, genetlink_receive_message);
+	nl_register_or_replace_handler(NETLINK_GENERIC, gnl__receive_message);
 	//TODO: initialize bsd nl
 }
 
 static void
-genetlinkunload(void *u __unused)
+gnl_unload(void *u __unused)
 {
 }
 
-SYSINIT(genetlinkload, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, genetlinkload, NULL);
-SYSINIT(genetlinkunload, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, genetlinkunload, NULL);
+SYSINIT(gnl_load, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, gnl_load, NULL);
+SYSINIT(gnl_unload, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, gnl_unload, NULL);

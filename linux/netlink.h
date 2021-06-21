@@ -1,5 +1,5 @@
-#ifndef _LINUX_NETLINK2_H
-#define _LINUX_NETLINK2_H
+#ifndef _LINUX_NETLINK_H
+#define _LINUX_NETLINK_H
 
 #define AF_NETLINK 	38
 #define PF_NETLINK 	38

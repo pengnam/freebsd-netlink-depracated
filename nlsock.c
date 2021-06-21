@@ -29,7 +29,7 @@ MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 
 
 //TODO: Change into proto to uint8 proto
-/*---- start debugging macros  */
+/*---- start debugging macros --luigi */
 #define ND(format, ...)
 #define D(format, ...)                                          \
 	do {                                                    \
@@ -39,24 +39,22 @@ MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 				(int)__xxts.tv_sec % 1000, (int)__xxts.tv_usec, \
 				__LINE__, __FUNCTION__, ##__VA_ARGS__);         \
 	} while (0)
-/*end */
 
 nl_handler nl_handlers[MAX_HANDLERS];
-//TODO: Consider shifting this to netlink socket
-#define nl_src_portid   so_fibnum
-#define nl_dst_portid   so_user_cookie
 
-/*Utility*/
-static int 
-verify_proto(int proto) {
+	static int 
+nl_verify_proto(int proto)
+{
 	if (proto < 0 || proto >= MAX_HANDLERS) {
 		return EINVAL;
 	}
 	int handler_defined = nl_handlers[proto] != NULL;
 	return (handler_defined ? 0 : EPROTONOSUPPORT);
 }
-int 
-register_or_replace_handler(int proto, nl_handler handler) {
+
+	int
+nl_register_or_replace_handler(int proto, nl_handler handler)
+{
 	if (proto < 0 || proto >= MAX_HANDLERS) {
 		return EINVAL;
 	}
@@ -64,7 +62,7 @@ register_or_replace_handler(int proto, nl_handler handler) {
 	return 0;
 }
 
-/*Start of usrreq struct handlers*/
+/*--- usrreq struct handlers ----*/
 
 	static void
 nl_abort(struct socket *so)
@@ -83,7 +81,7 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 
 	KASSERT(so->so_pcb == NULL, ("rts_attach: so_pcb != NULL"));
 
-	error = verify_proto(proto);
+	error = nl_verify_proto(proto);
 	if (error)
 		return error;
 	rp = malloc(sizeof *rp, M_PCB, M_WAITOK | M_ZERO);
@@ -100,11 +98,13 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	so->so_options |= SO_USELOOPBACK;
 	return 0;
 }
+
 	static int
 nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
 	return (raw_usrreqs.pru_bind(so, nam, td)); /* xxx just EINVAL */
 }
+
 	static int
 nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
@@ -112,8 +112,6 @@ nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	struct sockaddr_nl *nla = (struct sockaddr_nl *)nam;
 	if (nla->nl_len != sizeof(*nla))
 		return EINVAL;
-	//if (nla->nl_family != AF_NETLINK)
-	//	return EINVAL;
 
 	//TODO: Look at autobind to see how linux handles port *source* id assignment https://elixir.bootlin.com/linux/latest/source/net/netlink/af_netlink.c
 	// How source port ids should be addressed is here: https://man7.org/linux/man-pages/man7/netlink.7.html
@@ -130,7 +128,6 @@ nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 nl_detach(struct socket *so)
 {
 	D("");
-
 	raw_usrreqs.pru_detach(so);
 }
 
@@ -138,15 +135,14 @@ nl_detach(struct socket *so)
 nl_disconnect(struct socket *so)
 {
 	D("");
-	//TODO: Currently using rtsock
 	return (raw_usrreqs.pru_disconnect(so));
 }
+
 	static int
 nl_peeraddr(struct socket *so, struct sockaddr **nam)
 {
 
 	D("");
-	//TODO: Currently using rtsock
 	return (raw_usrreqs.pru_peeraddr(so, nam));
 }
 
@@ -159,14 +155,10 @@ nl_shutdown(struct socket *so)
 }
 
 
-/* fetch peer's address */
 	static int
 nl_sockaddr(struct socket *so, struct sockaddr **nam)
 {
-	struct sockaddr_nl *snl;
-
-	snl = malloc(sizeof *snl, M_SONAME, M_WAITOK | M_ZERO);
-	D("socket %p", so);
+	struct sockaddr_nl *snl = malloc(sizeof *snl, M_SONAME, M_WAITOK | M_ZERO);
 	/* TODO: set other fields */
 	snl->nl_pid = so->so_fibnum;
 	snl->nl_len = sizeof(*snl);
@@ -184,10 +176,10 @@ nl_close(struct socket *so)
 
 	raw_usrreqs.pru_close(so);
 }
+/*--- end of usrreq struct handlers----*/
 
 
-
-/* Protosw*/
+/*---- start of protosw struct handlers ----*/
 static int
 nl_ctloutput(struct socket *so, struct sockopt *sopt) {
 	D("");
@@ -196,43 +188,47 @@ nl_ctloutput(struct socket *so, struct sockopt *sopt) {
 }
 
 /**
- * off: offset for the start of next message
+ * Retrieve the message length of a message 
+ * @offset: offset in bytes of the start of the next message in mbuf
+ *
+ * Returns 0 if no valid message length can be found for message at offset,
+ * message length otherwise
  */
-static int 
-retrieve_message_length(int offset, struct mbuf *m) {
+	static int 
+nl_retrieve_message_length(int offset, struct mbuf *m)
+{
 	D("");
-	int total_length = m_length(m, NULL), message_length;
-
+	int total_length, message_length;
 	struct nlmsghdr hdr;
 	struct nlmsghdr *h = &hdr;
 
+	total_length = m_length(m, NULL);
+
 	if (offset >= total_length || offset + NLMSG_HDRLEN > total_length) {
-		D("exit 1; total_length: %d; offset: %d, hdrlen: %d", total_length, offset, NLMSG_HDRLEN);
 		return 0;
 	}
 
-	// Copy data first 
+	// Copy out netlink header data
 	m_copydata(m, offset, sizeof(hdr), (caddr_t) h);
-
 	message_length = h->nlmsg_len;
 
-	//  Ensure that message is right sized
+	//  Ensure that message_length is valid
 	if (message_length < NLMSG_HDRLEN || offset + message_length > total_length) {
-		D("exit 2; total_length: %d; offset: %d; message_length: %d", total_length, offset, message_length);
 		return 0;
 	}
 	return message_length;
 }
 
 
-static int
-nl_send_msg(struct mbuf *m) {
+	static int
+nl_send_msg(struct mbuf *m)
+{
 	// TODO: phase3: set to isrqueue
 	return 0;
 }
 
 
-static void
+	static void
 nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 {
 	D("");
@@ -242,8 +238,8 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	struct nlmsgerr *errmsg;
 	int payload = sizeof(*errmsg);
 
-	//TODO: handle NETLINK_F_EXT_ACK sockopt
-	//TODO: handle NETLINK_F_CAP_ACK sockopt look at linux
+	//TODO: handle NETLINK_F_EXT_ACK sockopt (linux impl)
+	//TODO: handle NETLINK_F_CAP_ACK sockopt (linux impl)
 	if (err)
 		payload += (nlmsg->nlmsg_len);
 	//TODO: handle cookies
@@ -266,15 +262,16 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	errmsg->error = err;
 	/* In case of error copy the whole message, else just the header */
 	memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
-	
+
 	m->m_pkthdr.len = nlmsg_aligned_msg_size(payload);
 	//NOTE: Not implemented as no need for now
 	//nlmsg_end(m, repnlh);
 	nl_send_msg(m);
 }
 
-static int 
-reallocate_memory(char** buffer, int length, int* buffer_length) {
+	static int 
+reallocate_memory(char** buffer, int length, int* buffer_length)
+{
 	//TODO: Round bufferfer length to 1k?
 	if (*buffer != NULL) {
 		free(*buffer, M_NETLINK);
@@ -290,7 +287,7 @@ reallocate_memory(char** buffer, int length, int* buffer_length) {
  * Processes an incoming packet
  * Assumes that every packet header is within a single mbuf
  */
-static int
+	static int
 nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 {
 	D("");
@@ -300,21 +297,19 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 	struct nlmsghdr *h = &hdr;
 	nl_handler handler = nl_handlers[proto];
 
-	while ((message_length = retrieve_message_length(offset, m))) {
+	while ((message_length = nl_retrieve_message_length(offset, m))) {
 		if (buffer_length < message_length) {
 			if ((error = reallocate_memory(&buffer, message_length, &buffer_length))) {
 				return error;
 			}
 		}
-		D("inside with meesage length(%d) and buffer length(%d)", message_length, buffer_length);
+		D("Considering message with message length(%d) and buffer length(%d)", message_length, buffer_length);
 		m_copydata(m, offset, message_length, buffer);
 		h = (struct nlmsghdr *)buffer;
-		if (h->nlmsg_flags & NLM_F_REQUEST &&
-				h->nlmsg_type >= NLMSG_MIN_TYPE) {
+		if (h->nlmsg_flags & NLM_F_REQUEST && h->nlmsg_type >= NLMSG_MIN_TYPE) {
 			D("inside with msg type: %d", h->nlmsg_type);
 			error = handler((void *)h);
 		}
-		D("outside");
 
 		if (error != EINTR && (h->nlmsg_flags & NLM_F_ACK || error != 0))
 			nl_ack(proto, NETLINK_CB_PORT(m), h, error);
@@ -325,8 +320,9 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 }
 
 
-static int
-nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...) {
+	static int
+nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
+{
 	D("");
 	struct rawcb *rp;
 	int proto;
@@ -348,7 +344,7 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...) {
 
 
 	static int
-nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *   nam,
+nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
 		struct mbuf *control, struct thread *td)
 {
 	D("");
@@ -365,8 +361,8 @@ static struct pr_usrreqs nl_usrreqs = {
 	.pru_disconnect =   nl_disconnect,
 	.pru_peeraddr =     nl_peeraddr,
 	.pru_send =     nl_send,
-	.pru_shutdown =     nl_shutdown,//TODO
-	.pru_sockaddr =     nl_sockaddr,//TODO
+	.pru_shutdown =     nl_shutdown,
+	.pru_sockaddr =     nl_sockaddr,
 	.pru_close =        nl_close 
 };
 
@@ -379,7 +375,6 @@ static struct protosw netlinksw[] = {
 		.pr_flags =		PR_ATOMIC|PR_ADDR,
 		.pr_output =		nl_msg_to_netlink,
 		.pr_ctloutput =         nl_ctloutput,
-
 		.pr_init =		raw_init,
 		.pr_usrreqs =		&nl_usrreqs
 	}
