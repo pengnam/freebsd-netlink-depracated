@@ -76,7 +76,7 @@ nl_abort(struct socket *so)
 nl_attach(struct socket *so, int proto, struct thread *td)
 {
 	D("");
-	struct rawcb *rp;
+	struct nlpcb *rp;
 	int error;
 
 	KASSERT(so->so_pcb == NULL, ("rts_attach: so_pcb != NULL"));
@@ -87,9 +87,10 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	rp = malloc(sizeof *rp, M_PCB, M_WAITOK | M_ZERO);
 
 	so->so_pcb = (caddr_t)rp;
+	//TODO: Decide if this is needed
 	so->so_fibnum = td->td_proc->p_fibnum;
+
 	error = raw_attach(so, proto);
-	rp = sotorawcb(so);
 	if (error) {
 		so->so_pcb = NULL;
 		free(rp, M_PCB);
@@ -109,14 +110,16 @@ nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
 	D("");
+	struct nlpcb *rp;
 	struct sockaddr_nl *nla = (struct sockaddr_nl *)nam;
 	if (nla->nl_len != sizeof(*nla))
 		return EINVAL;
 
+	rp = sotonlpcb(so);
 	//TODO: Look at autobind to see how linux handles port *source* id assignment https://elixir.bootlin.com/linux/latest/source/net/netlink/af_netlink.c
 	// How source port ids should be addressed is here: https://man7.org/linux/man-pages/man7/netlink.7.html
-	so->nl_src_portid = 1;
-	so->nl_dst_portid = nla->nl_pid; 
+	rp->portid = 1;
+	rp->dst_portid = nla->nl_pid;/*NOTE: This is not used, refer to comment in PR phase*/
 
 	//TODO: Handle multicast and socket flags: refer to linux implementation
 
@@ -183,7 +186,24 @@ nl_close(struct socket *so)
 static int
 nl_ctloutput(struct socket *so, struct sockopt *sopt) {
 	D("");
-	//TODO:
+	switch (sopt->sopt_dir) {
+		case SOPT_SET:
+			switch (sopt->sopt_name) {
+				case NETLINK_ADD_MEMBERSHIP:
+					//sooptcopyin(sopt, &mgrp, sizeof mgrp, sizeof mgrp);
+
+					D("/* Tag the socket as netlink multicast */");
+					//so->so_fibnum = mgrp;
+
+					return 0;
+				default:
+					D("bad option name 0x%x", sopt->sopt_name);
+					return 0; // XXX hack EINVAL;
+			}
+		case SOPT_GET:
+		default:
+			return ENOPROTOOPT;
+	}
 	return 0;
 }
 
@@ -295,8 +315,9 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 	int message_length = 0, offset = 0, buffer_length = 0, error = 0;
 	struct nlmsghdr hdr;
 	struct nlmsghdr *h = &hdr;
+	//TODO: Check that proto has a valid handler
 	nl_handler handler = nl_handlers[proto];
-
+	struct nlpcb *rp = sotonlpcb(so);
 	while ((message_length = nl_retrieve_message_length(offset, m))) {
 		if (buffer_length < message_length) {
 			if ((error = reallocate_memory(&buffer, message_length, &buffer_length))) {
@@ -308,11 +329,12 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 		h = (struct nlmsghdr *)buffer;
 		if (h->nlmsg_flags & NLM_F_REQUEST && h->nlmsg_type >= NLMSG_MIN_TYPE) {
 			D("inside with msg type: %d", h->nlmsg_type);
+			
 			error = handler((void *)h);
 		}
 
 		if (error != EINTR && (h->nlmsg_flags & NLM_F_ACK || error != 0))
-			nl_ack(proto, NETLINK_CB_PORT(m), h, error);
+			nl_ack(proto, rp->portid, h, error);
 
 		offset += NLMSG_ALIGN(message_length);
 	}
@@ -324,7 +346,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
 {
 	D("");
-	struct rawcb *rp;
+	struct nlpcb *rp;
 	int proto;
 
 	if (m == NULL || ((m->m_len < sizeof(long)) &&
@@ -333,11 +355,9 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
 	if ((m->m_flags & M_PKTHDR) == 0)
 		panic("nl_msg_to_netlink");
 
-	rp = sotorawcb(so);
-	proto = rp->rcb_proto.sp_protocol;
+	rp = sotonlpcb(so);
+	proto = rp->rp.rcb_proto.sp_protocol;
 	//TODO: Decide whether saving it in the mbuf header is the best 
-	//TODO: Figure netlink_skb
-	NETLINK_CB_PORT(m) = so->nl_src_portid;
 	nl_receive_packet(m, so, proto);
 	return 0;
 }

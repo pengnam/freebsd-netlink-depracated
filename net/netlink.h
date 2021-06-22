@@ -33,11 +33,6 @@
 //TODO: Change to max netlink number
 #define MAX_HANDLERS 100
 typedef int (*nl_handler)(char *data);
-#define nl_src_portid   so_fibnum
-#define nl_dst_portid   so_user_cookie
-
-/*Note that flowid only has 32 bits which is only enough for portid*/
-#define NETLINK_CB_PORT(m) ((m)->m_pkthdr.flowid)
 
 int 
 nl_register_or_replace_handler(int proto, nl_handler handle);

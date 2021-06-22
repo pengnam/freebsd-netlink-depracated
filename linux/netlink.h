@@ -5,6 +5,31 @@
 #define PF_NETLINK 	38
 
 
+#include <sys/param.h>
+#include <sys/module.h>
+#include <sys/kernel.h>
+#include <sys/jail.h>
+#include <sys/kernel.h>
+#include <sys/domain.h>
+#include <sys/lock.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/priv.h>
+#include <sys/proc.h>
+#include <sys/protosw.h>
+#include <sys/rwlock.h>
+#include <sys/signalvar.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+#include <sys/systm.h>
+
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <net/if_types.h>
+#include <net/netisr.h>
+#include <net/vnet.h>
+#include <net/raw_cb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -71,5 +96,33 @@ struct nlmsgerr {
 #define NLMSG_ALIGNTO	4U
 #define NLMSG_ALIGN(len) ( ((len)+NLMSG_ALIGNTO-1) & ~(NLMSG_ALIGNTO-1) )
 #define NLMSG_HDRLEN	 ((int) NLMSG_ALIGN(sizeof(struct nlmsghdr)))
+
+
+//Socket options
+#define NETLINK_ADD_MEMBERSHIP		1
+#define NETLINK_DROP_MEMBERSHIP		2
+//Others currently supported
+#if 0
+#define NETLINK_PKTINFO			3
+#define NETLINK_BROADCAST_ERROR		4
+#define NETLINK_NO_ENOBUFS		5
+#define NETLINK_RX_RING			6
+#define NETLINK_TX_RING			7
+#define NETLINK_LISTEN_ALL_NSID		8
+#define NETLINK_LIST_MEMBERSHIPS	9
+#define NETLINK_CAP_ACK			10
+#define NETLINK_EXT_ACK			11
+#define NETLINK_GET_STRICT_CHK		12
+#endif
+
+struct nlpcb {
+	struct rawcb rp; /*rawcb*/
+	uint32_t			portid;
+	uint32_t			dst_portid;
+	uint32_t			dst_group;
+	uint32_t			flags;
+};
+#define sotonlpcb(so)       ((struct nlpcb *)(so)->so_pcb)
+
 
 #endif /*linux_netlink_h*/
