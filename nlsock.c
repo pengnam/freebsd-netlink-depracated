@@ -103,6 +103,7 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	static int
 nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
+	//TODO: Multicast group binding, refer to netlink_bind
 	return (raw_usrreqs.pru_bind(so, nam, td)); /* xxx just EINVAL */
 }
 
@@ -186,19 +187,19 @@ nl_close(struct socket *so)
 static int
 nl_ctloutput(struct socket *so, struct sockopt *sopt) {
 	D("");
+	int mgrp;
 	switch (sopt->sopt_dir) {
 		case SOPT_SET:
 			switch (sopt->sopt_name) {
 				case NETLINK_ADD_MEMBERSHIP:
-					//sooptcopyin(sopt, &mgrp, sizeof mgrp, sizeof mgrp);
+					sooptcopyin(sopt, &mgrp, sizeof mgrp, sizeof mgrp);
+					//TODO: modify nl_groups
 
-					D("/* Tag the socket as netlink multicast */");
-					//so->so_fibnum = mgrp;
 
 					return 0;
 				default:
-					D("bad option name 0x%x", sopt->sopt_name);
-					return 0; // XXX hack EINVAL;
+					//TODO: 
+					return 0; 
 			}
 		case SOPT_GET:
 		default:
