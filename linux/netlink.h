@@ -5,31 +5,6 @@
 #define PF_NETLINK 	38
 
 
-#include <sys/param.h>
-#include <sys/module.h>
-#include <sys/kernel.h>
-#include <sys/jail.h>
-#include <sys/kernel.h>
-#include <sys/domain.h>
-#include <sys/lock.h>
-#include <sys/malloc.h>
-#include <sys/mbuf.h>
-#include <sys/priv.h>
-#include <sys/proc.h>
-#include <sys/protosw.h>
-#include <sys/rwlock.h>
-#include <sys/signalvar.h>
-#include <sys/socket.h>
-#include <sys/socketvar.h>
-#include <sys/sysctl.h>
-#include <sys/systm.h>
-
-#include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
-#include <net/vnet.h>
-#include <net/raw_cb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -115,14 +90,6 @@ struct nlmsgerr {
 #define NETLINK_GET_STRICT_CHK		12
 #endif
 
-struct nlpcb {
-	struct rawcb rp; /*rawcb*/
-	uint32_t			portid;
-	uint32_t			dst_portid;
-	uint32_t			dst_group;
-	uint32_t			flags;
-};
-#define sotonlpcb(so)       ((struct nlpcb *)(so)->so_pcb)
 
 
 #endif /*linux_netlink_h*/

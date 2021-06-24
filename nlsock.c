@@ -17,6 +17,11 @@
 #include <sys/sysctl.h>
 #include <sys/systm.h>
 
+#include <sys/malloc.h>
+#include <sys/systm.h>
+#include <sys/queue.h>
+
+
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
@@ -26,6 +31,7 @@
 #include <net/route.h>
 #include <netlink2/net/netlink.h>
 MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
+
 
 
 //TODO: Change into proto to uint8 proto
@@ -40,12 +46,21 @@ MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 				__LINE__, __FUNCTION__, ##__VA_ARGS__);         \
 	} while (0)
 
-nl_handler nl_handlers[MAX_HANDLERS];
+nl_handler nl_handlers[NL_MAX_HANDLERS];
+struct mtx nlsock_mtx;
+#define	NLSOCK_LOCK()	mtx_lock(&nlsock_mtx)
+#define	NLSOCK_UNLOCK()	mtx_unlock(&nlsock_mtx)
+struct nl_portid {
+	LIST_ENTRY(nl_portid)  next;
+	uint32_t id;
+};
+LIST_HEAD(, nl_portid) nl_portid_list = LIST_HEAD_INITIALIZER(nl_portid_list);
+
 
 	static int 
 nl_verify_proto(int proto)
 {
-	if (proto < 0 || proto >= MAX_HANDLERS) {
+	if (proto < 0 || proto >= NL_MAX_HANDLERS) {
 		return EINVAL;
 	}
 	int handler_defined = nl_handlers[proto] != NULL;
@@ -55,7 +70,7 @@ nl_verify_proto(int proto)
 	int
 nl_register_or_replace_handler(int proto, nl_handler handler)
 {
-	if (proto < 0 || proto >= MAX_HANDLERS) {
+	if (proto < 0 || proto >= NL_MAX_HANDLERS) {
 		return EINVAL;
 	}
 	nl_handlers[proto] = handler;
@@ -87,8 +102,6 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	rp = malloc(sizeof *rp, M_PCB, M_WAITOK | M_ZERO);
 
 	so->so_pcb = (caddr_t)rp;
-	//TODO: Decide if this is needed
-	so->so_fibnum = td->td_proc->p_fibnum;
 
 	error = raw_attach(so, proto);
 	if (error) {
@@ -97,6 +110,7 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 		return error;
 	}
 	so->so_options |= SO_USELOOPBACK;
+
 	return 0;
 }
 
@@ -107,25 +121,95 @@ nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 	return (raw_usrreqs.pru_bind(so, nam, td)); /* xxx just EINVAL */
 }
 
+//Lock needs to be claimed
+	static struct
+nl_portid * nl_portid_lookup(uint32_t portid)
+{
+	struct nl_portid * entry;
+	LIST_FOREACH(entry, &nl_portid_list, next) {
+		if (entry->id == portid) {
+			return entry;
+		}
+	}
+	return NULL;
+}
+
+//Lock needs to be claimed
+	static bool
+nl_portid_exists(uint32_t portid)
+{
+	return nl_portid_lookup(portid) != NULL;
+}
+
+	static int
+nl_assign_port(struct nlpcb *rp, uint32_t portid)
+{
+	struct nl_portid *new_port;
+	int error = 0;
+
+	new_port = malloc(sizeof(struct nl_portid), M_NETLINK, M_NOWAIT|M_ZERO);
+	if (!new_port) {
+		return ENOMEM;
+	}
+	new_port->id = portid;
+
+	NLSOCK_LOCK();
+	if (nl_portid_exists(portid)) {
+		error  = EADDRINUSE;
+	} else {
+		LIST_INSERT_HEAD(&nl_portid_list, new_port, next);
+		rp->portid = portid;
+	}
+	NLSOCK_UNLOCK();
+	return error;
+}
+
+
+	static int
+nl_bind_port(struct nlpcb *rp, uint32_t start) 
+{
+	uint32_t portid = start;
+	bool exist;
+	int error;
+
+retry:
+	NLSOCK_LOCK();
+	exist = nl_portid_exists(portid);
+	NLSOCK_UNLOCK();
+	if (exist) {
+		portid++;
+		goto retry;
+
+	}
+	error = nl_assign_port(rp, portid);
+	if (error == EADDRINUSE)
+		goto retry;
+	return error;
+
+}
+
 	static int
 nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
+
+	//TODO: What about kernel sockets? Should they be reassigned?
 	D("");
 	struct nlpcb *rp;
 	struct sockaddr_nl *nla = (struct sockaddr_nl *)nam;
+	int error = 0;
 	if (nla->nl_len != sizeof(*nla))
 		return EINVAL;
 
 	rp = sotonlpcb(so);
-	//TODO: Look at autobind to see how linux handles port *source* id assignment https://elixir.bootlin.com/linux/latest/source/net/netlink/af_netlink.c
-	// How source port ids should be addressed is here: https://man7.org/linux/man-pages/man7/netlink.7.html
-	rp->portid = 1;
-	rp->dst_portid = nla->nl_pid;/*NOTE: This is not used, refer to comment in PR phase*/
+	error = nl_bind_port(rp, td->td_proc->p_pid);
+	if (error == 0) {
+		rp->dst_portid = nla->nl_pid;/*NOTE: This is not used, refer to comment in PR phase*/
+		//TODO: Handle multicast and socket flags: refer to linux implementation
+		soisconnected(so);
+	}
+	D("Portid: %d, Error: %d", rp->portid, error);
 
-	//TODO: Handle multicast and socket flags: refer to linux implementation
-
-	soisconnected(so);
-	return 0;
+	return error;
 }
 
 	static void
@@ -330,7 +414,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 		h = (struct nlmsghdr *)buffer;
 		if (h->nlmsg_flags & NLM_F_REQUEST && h->nlmsg_type >= NLMSG_MIN_TYPE) {
 			D("inside with msg type: %d", h->nlmsg_type);
-			
+
 			error = handler((void *)h);
 		}
 
@@ -410,3 +494,40 @@ static struct domain netlinkdomain = {
 
 
 VNET_DOMAIN_SET(netlink);
+
+	static int
+netlink_modevent(module_t mod __unused, int what, void *priv __unused)
+{
+	int ret = 0;
+
+	switch(what) {
+		case MOD_LOAD:
+			D("Loading");
+			LIST_INIT(&nl_portid_list);
+			break;
+
+		case MOD_UNLOAD:
+			D("Unloading");
+			//while (!LIST_EMPTY(&nl_portid_list))	{
+			//	n1 = LIST_FIRST(&nl_portid_list);
+			//	LIST_REMOVE(n1, next);
+			//	free(n1);
+			//}
+			//break;
+
+		default:
+			ret = EOPNOTSUPP;
+			break;
+	}
+
+	return ret;
+}
+
+static moduledata_t netlink_mod = {
+	"netlink",
+	netlink_modevent,
+	NULL
+};
+
+DECLARE_MODULE(netlink_disc, netlink_mod, SI_SUB_PSEUDO, SI_ORDER_ANY);
+MODULE_VERSION(netlink, 1);

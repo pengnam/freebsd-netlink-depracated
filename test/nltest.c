@@ -60,7 +60,7 @@ do_write(int s, int l)
 int
 main(int argc, char *argv[])
 {
-	int s;
+	int s, t;
 	int x = NETLINK_GENERIC;
 	int i = 1; /* argument pointer */
 
@@ -71,6 +71,7 @@ main(int argc, char *argv[])
 	s = do_open(x);
 	D("socket returns %d", s);
 	do_write(s, 16);
+	t = do_open(x);
 
 	return 0;
 }
