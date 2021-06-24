@@ -161,6 +161,7 @@ nl_assign_port(struct nlpcb *rp, uint32_t portid)
 		rp->portid = portid;
 	}
 	NLSOCK_UNLOCK();
+	D("port assign: %d, err: %d", portid, error);
 	return error;
 }
 
@@ -237,7 +238,7 @@ nl_peeraddr(struct socket *so, struct sockaddr **nam)
 	static int
 nl_shutdown(struct socket *so)
 {
-
+	//NETLINK doesn't do much on shutdown, and mainly closes
 	D("");
 	return (raw_usrreqs.pru_shutdown(so));
 }
@@ -261,6 +262,23 @@ nl_sockaddr(struct socket *so, struct sockaddr **nam)
 	static void
 nl_close(struct socket *so)
 {
+	D("");
+	struct nl_portid *p;
+	struct nlpcb *rp;
+
+	rp = sotonlpcb(so);
+
+	// Release the portid
+	NLSOCK_LOCK();
+	p = nl_portid_lookup(rp->portid);
+	if (p == NULL) {
+		D("Error: can't find portid in list");
+		goto err;
+	}
+	LIST_REMOVE(p, next);
+	free(p, M_NETLINK);
+err:
+	NLSOCK_UNLOCK();
 
 	raw_usrreqs.pru_close(so);
 }
@@ -400,9 +418,10 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 	int message_length = 0, offset = 0, buffer_length = 0, error = 0;
 	struct nlmsghdr hdr;
 	struct nlmsghdr *h = &hdr;
+	struct nlpcb *rp;
 	//TODO: Check that proto has a valid handler
 	nl_handler handler = nl_handlers[proto];
-	struct nlpcb *rp = sotonlpcb(so);
+	rp = sotonlpcb(so);
 	while ((message_length = nl_retrieve_message_length(offset, m))) {
 		if (buffer_length < message_length) {
 			if ((error = reallocate_memory(&buffer, message_length, &buffer_length))) {
@@ -499,6 +518,7 @@ VNET_DOMAIN_SET(netlink);
 netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 {
 	int ret = 0;
+	struct nl_portid *p;
 
 	switch(what) {
 		case MOD_LOAD:
@@ -508,12 +528,12 @@ netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 
 		case MOD_UNLOAD:
 			D("Unloading");
-			//while (!LIST_EMPTY(&nl_portid_list))	{
-			//	n1 = LIST_FIRST(&nl_portid_list);
-			//	LIST_REMOVE(n1, next);
-			//	free(n1);
-			//}
-			//break;
+			while (!LIST_EMPTY(&nl_portid_list))	{
+				p = LIST_FIRST(&nl_portid_list);
+				LIST_REMOVE(p, next);
+				free(p, M_NETLINK);
+			}
+			break;
 
 		default:
 			ret = EOPNOTSUPP;

@@ -71,6 +71,7 @@ main(int argc, char *argv[])
 	s = do_open(x);
 	D("socket returns %d", s);
 	do_write(s, 16);
+	close(s);
 	t = do_open(x);
 
 	return 0;
