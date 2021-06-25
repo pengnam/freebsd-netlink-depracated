@@ -7,6 +7,8 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/libkern.h>
+
 
 struct sockaddr_nl {
 	uint8_t		nl_len;		/* FreeBSD SPECIFIC */
@@ -89,6 +91,87 @@ struct nlmsgerr {
 #define NETLINK_EXT_ACK			11
 #define NETLINK_GET_STRICT_CHK		12
 #endif
+
+/*---- start nl attributes----*/
+ /**
+  * Standard attribute types to specify validation policy
+  */
+enum {
+	NLA_UNSPEC,
+	NLA_U8,
+	NLA_U16,
+	NLA_U32,
+	NLA_U64,
+	NLA_STRING,
+	NLA_FLAG,
+	NLA_REJECT,
+	NLA_NESTED,
+	NLA_NESTED_ARRAY,
+	NLA_NUL_STRING,
+	__NLA_TYPE_MAX,
+};
+#define NLA_TYPE_MAX (__NLA_TYPE_MAX - 1)
+
+struct nlattr {
+	uint16_t           nla_len;
+	uint16_t           nla_type;
+};
+struct nla_policy {
+    uint16_t        type;
+    uint16_t        len;
+};
+
+static const uint8_t nla_attr_len[NLA_TYPE_MAX+1] = {
+	[NLA_U8]	= sizeof(uint8_t),
+	[NLA_U16]	= sizeof(uint16_t),
+	[NLA_U32]	= sizeof(uint32_t),
+	[NLA_U64]	= sizeof(uint64_t),
+	//[NLA_S8]	= sizeof(s8),
+	//[NLA_S16]	= sizeof(s16),
+	//[NLA_S32]	= sizeof(s32),
+	//[NLA_S64]	= sizeof(s64),
+};
+
+static const uint8_t nla_attr_minlen[NLA_TYPE_MAX+1] = {
+	[NLA_U8]	= sizeof(uint8_t),
+	[NLA_U16]	= sizeof(uint16_t),
+	[NLA_U32]	= sizeof(uint32_t),
+	[NLA_U64]	= sizeof(uint64_t),
+	//[NLA_MSECS]	= sizeof(uint64_t),
+	//[NLA_NESTED]	= NLA_HDRLEN,
+	//[NLA_S8]	= sizeof(s8),
+	//[NLA_S16]	= sizeof(s16),
+	//[NLA_S32]	= sizeof(s32),
+	//[NLA_S64]	= sizeof(s64),
+};
+#define NLA_ALIGNTO		4
+#define NLA_ALIGN(len)		(((len) + NLA_ALIGNTO - 1) & ~(NLA_ALIGNTO - 1))
+#define NLA_HDRLEN		((int) NLA_ALIGN(sizeof(struct nlattr)))
+
+/**
+ * nla_for_each_attr - iterate over a stream of attributes
+ * @pos: loop counter, set to current attribute
+ * @head: head of attribute stream
+ * @len: length of attribute stream
+ * @rem: initialized to len, holds bytes currently remaining in stream
+ */
+#define nla_for_each_attribute(pos, head, len, rem) \
+	for (pos = head, rem = len; \
+	     nla_ok(pos, rem); \
+	     pos = nla_next(pos, &(rem)))
+
+/**
+ * nla_for_each_nested - iterate over nested attributes
+ * @pos: loop counter, set to current attribute
+ * @nla: attribute containing the nested attributes
+ * @rem: initialized to len, holds bytes currently remaining in stream
+ */
+#define nla_for_each_nested(pos, nla, rem) \
+	nla_for_each_attr(pos, nla_data(nla), nla_len(nla), rem)
+
+
+#define MAX_POLICY_RECURSION_DEPTH 10
+
 
 
 

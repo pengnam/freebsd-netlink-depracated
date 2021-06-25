@@ -111,6 +111,7 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	}
 	so->so_options |= SO_USELOOPBACK;
 
+
 	return 0;
 }
 
@@ -367,7 +368,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 		payload += (nlmsg->nlmsg_len);
 	//TODO: handle cookies
 
-	m = nlmsg_new(payload, M_WAITOK);
+	m = nlmsg_new(payload, M_WAITOK | M_ZERO);
 	D("size of new mbuf: %d\n", m->m_len);
 	if (!m) {
 		//TODO: handle error
@@ -523,6 +524,7 @@ netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 	switch(what) {
 		case MOD_LOAD:
 			D("Loading");
+
 			LIST_INIT(&nl_portid_list);
 			break;
 
