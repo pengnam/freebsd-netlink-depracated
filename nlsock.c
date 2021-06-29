@@ -319,7 +319,7 @@ nl_ctloutput(struct socket *so, struct sockopt *sopt) {
  * message length otherwise
  */
 	static int 
-nl_retrieve_message_length(int offset, struct mbuf *m)
+nl_message_length(int offset, struct mbuf *m)
 {
 	D("");
 	int total_length, message_length;
@@ -370,6 +370,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 
 	m = nlmsg_new(payload, M_WAITOK | M_ZERO);
 	D("size of new mbuf: %d\n", m->m_len);
+	D("size of new mbuf: %d\n", m->m_pkthdr.len);
 	if (!m) {
 		//TODO: handle error
 		D("error allocating nlmsg");
@@ -387,7 +388,6 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	/* In case of error copy the whole message, else just the header */
 	memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
 
-	m->m_pkthdr.len = nlmsg_aligned_msg_size(payload);
 	//NOTE: Not implemented as no need for now
 	//nlmsg_end(m, repnlh);
 	nl_send_msg(m);
@@ -423,7 +423,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 	//TODO: Check that proto has a valid handler
 	nl_handler handler = nl_handlers[proto];
 	rp = sotonlpcb(so);
-	while ((message_length = nl_retrieve_message_length(offset, m))) {
+	while ((message_length = nl_message_length(offset, m))) {
 		if (buffer_length < message_length) {
 			if ((error = reallocate_memory(&buffer, message_length, &buffer_length))) {
 				return error;
@@ -475,6 +475,14 @@ nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
 	D("");
 	return nl_msg_to_netlink(m, so);
 }
+
+void *
+nl_data_end_ptr(struct mbuf * m) 
+{
+	return mtod(m, unsigned char *) + m->m_len;
+
+}
+
 
 /* netlink usrreqs*/
 static struct pr_usrreqs nl_usrreqs = {

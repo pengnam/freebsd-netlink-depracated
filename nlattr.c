@@ -26,9 +26,7 @@ static inline void *nla_data(struct nlattr *nla)
 	return (char *) nla + NLA_HDRLEN;
 }
 /**
- * nla_ok - check if the netlink attribute fits into the remaining bytes
- * @nla: netlink attribute
- * @remaining: number of bytes remaining in attribute stream
+ * Check if netlink attribute fits into remaining bytes
  */
 static inline int nla_ok(const struct nlattr *nla, int remaining)
 {
@@ -38,10 +36,6 @@ static inline int nla_ok(const struct nlattr *nla, int remaining)
 }
 
 /**
- * nla_next - next netlink attribute in attribute stream
- * @nla: netlink attribute
- * @remaining: number of bytes remaining in attribute stream
- *
  * Returns the next netlink attribute in the attribute stream and
  * decrements remaining by the size of the current attribute.
  */
@@ -141,7 +135,7 @@ nla_validate_parse(struct nlattr *head, int maxtype,int len,
 	nla_for_each_attribute(nla, head, len, rem) {
 		type = nla_type(nla);
 		if (type > maxtype) {
-			return -EINVAL;
+			return EINVAL;
 		}
 		if (policy) {
 			error = nla_validate(nla, maxtype, policy, validate, depth);
@@ -159,14 +153,22 @@ nla_put(struct mbuf *m, int attrtype, int attrlen, const void *data)
 {
 	struct nlattr *nla;
 	size_t totlen = NLMSG_ALIGN(NLA_HDRLEN) + NLMSG_ALIGN(attrlen);
+	struct nlmsghdr *hdr = mtod(m, struct nlmsghdr *);
 
-	//TODO: Check size limit
-	nla = mtod(m, struct nlattr *);
+	//TODO: Check size limit or change to append
+	nla = (struct nlattr *)(nl_data_end_ptr(m));
 	nla->nla_len = totlen;
 	nla->nla_type = attrtype;
 	if (attrlen > 0) {
-		bcopy(data, mtod(m, char *) + NLMSG_ALIGN(NLA_HDRLEN), attrlen);
+		bcopy(data, (unsigned char*)nl_data_end_ptr(m) + NLMSG_ALIGN(NLA_HDRLEN), attrlen);
 	}
+	//TODO: check sizes
 	m->m_pkthdr.len += totlen;
+	m->m_len += totlen;
+	hdr->nlmsg_len += NLMSG_ALIGN(NLA_HDRLEN)  + attrlen;
+	
 	return 0;
 }
+
+
+
