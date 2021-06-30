@@ -368,7 +368,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 		payload += (nlmsg->nlmsg_len);
 	//TODO: handle cookies
 
-	m = nlmsg_new(payload, M_WAITOK | M_ZERO);
+	m = nlmsg_new(payload, M_WAITOK );
 	D("size of new mbuf: %d\n", m->m_len);
 	D("size of new mbuf: %d\n", m->m_pkthdr.len);
 	if (!m) {
