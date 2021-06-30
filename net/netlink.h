@@ -94,6 +94,9 @@ nlmsg_len(const struct nlmsghdr *nlh)
 	return nlh->nlmsg_len - NLMSG_HDRLEN;
 }
 
+void *
+nl_data_end_ptr(struct mbuf * m);
+
 static inline struct mbuf *
 nlmsg_new(int payload, int flags)
 {
@@ -103,6 +106,12 @@ nlmsg_new(int payload, int flags)
 	if (flags & M_ZERO)
 		bzero(mtod(m, caddr_t), size);
 	return m;
+}
+
+static inline int
+nlmsg_end(struct mbuf *m, struct nlmsghdr *nlh) {
+	nlh->nlmsg_len = (char*)nl_data_end_ptr(m) - (char*) nlh;
+	return nlh->nlmsg_len;
 }
 
 
@@ -135,8 +144,6 @@ nlmsg_put(struct mbuf* m, int portid, int seq, int type, int payload, int flags)
 
 
 
-void *
-nl_data_end_ptr(struct mbuf * m);
 
 /*---- end nlmsg helpers ----*/
 struct nlpcb {

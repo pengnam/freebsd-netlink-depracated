@@ -388,8 +388,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	/* In case of error copy the whole message, else just the header */
 	memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
 
-	//NOTE: Not implemented as no need for now
-	//nlmsg_end(m, repnlh);
+	nlmsg_end(m, repnlh);
 	nl_send_msg(m);
 }
 

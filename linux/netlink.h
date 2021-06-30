@@ -102,6 +102,10 @@ enum {
 	NLA_U16,
 	NLA_U32,
 	NLA_U64,
+	NLA_S8,
+	NLA_S16,
+	NLA_S32,
+	NLA_S64,
 	NLA_STRING,
 	NLA_FLAG,
 	NLA_REJECT,
@@ -119,6 +123,8 @@ struct nlattr {
 struct nla_policy {
     uint16_t        type;
     uint16_t        len;
+    struct nla_policy *nested_policy;
+
 };
 
 static const uint8_t nla_attr_len[NLA_TYPE_MAX+1] = {
@@ -126,10 +132,10 @@ static const uint8_t nla_attr_len[NLA_TYPE_MAX+1] = {
 	[NLA_U16]	= sizeof(uint16_t),
 	[NLA_U32]	= sizeof(uint32_t),
 	[NLA_U64]	= sizeof(uint64_t),
-	//[NLA_S8]	= sizeof(s8),
-	//[NLA_S16]	= sizeof(s16),
-	//[NLA_S32]	= sizeof(s32),
-	//[NLA_S64]	= sizeof(s64),
+	[NLA_S8]	= sizeof(int8_t),
+	[NLA_S16]	= sizeof(int16_t),
+	[NLA_S32]	= sizeof(int32_t),
+	[NLA_S64]	= sizeof(int64_t),
 };
 
 static const uint8_t nla_attr_minlen[NLA_TYPE_MAX+1] = {
@@ -138,11 +144,10 @@ static const uint8_t nla_attr_minlen[NLA_TYPE_MAX+1] = {
 	[NLA_U32]	= sizeof(uint32_t),
 	[NLA_U64]	= sizeof(uint64_t),
 	//[NLA_MSECS]	= sizeof(uint64_t),
-	//[NLA_NESTED]	= NLA_HDRLEN,
-	//[NLA_S8]	= sizeof(s8),
-	//[NLA_S16]	= sizeof(s16),
-	//[NLA_S32]	= sizeof(s32),
-	//[NLA_S64]	= sizeof(s64),
+	[NLA_S8]	= sizeof(int8_t),
+	[NLA_S16]	= sizeof(int16_t),
+	[NLA_S32]	= sizeof(int32_t),
+	[NLA_S64]	= sizeof(int64_t),
 };
 #define NLA_ALIGNTO		4
 #define NLA_ALIGN(len)		(((len) + NLA_ALIGNTO - 1) & ~(NLA_ALIGNTO - 1))

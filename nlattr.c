@@ -52,11 +52,15 @@ static inline struct nlattr *nla_next(struct nlattr *nla, int *remaining)
 
 	static int
 nla_validate(struct nlattr *nla, int maxtype,
-		struct nla_policy *policy, unsigned int validate,
+		struct nla_policy *policy, 
 		unsigned int depth) 
 {
 	const struct nla_policy *pt;
-	int attribute_type, attribute_length, minlen; 
+	int attribute_type, attribute_length, minlen, error; 
+
+	if (depth >= MAX_POLICY_RECURSION_DEPTH) {
+		return EINVAL;
+	}
 
 	attribute_type = nla_type(nla);
 	attribute_length = nla_len(nla);
@@ -100,7 +104,19 @@ nla_validate(struct nlattr *nla, int maxtype,
 			}
 			break;
 		case NLA_NESTED:
-			//TODO:
+			if (attribute_length == 0)
+				break;
+			if (attribute_length < NLA_HDRLEN)
+				return ERANGE;
+			if (pt->nested_policy) {
+				error = nla_validate(nla_data(nla), maxtype, pt->nested_policy, depth + 1); 
+				if (error) {
+					return error;
+				}
+			}
+			break;
+
+
 		default:
 			// Refer to policy minimum length, else use pre-defined minimum length
 			if (pt->len)
@@ -117,7 +133,7 @@ nla_validate(struct nlattr *nla, int maxtype,
 
 	static int
 nla_validate_parse(struct nlattr *head, int maxtype,int len,
-		struct nla_policy *policy, unsigned int validate,
+		struct nla_policy *policy, 
 		struct nlattr **tb, unsigned int depth) 
 {
 	int error;
@@ -138,7 +154,7 @@ nla_validate_parse(struct nlattr *head, int maxtype,int len,
 			return EINVAL;
 		}
 		if (policy) {
-			error = nla_validate(nla, maxtype, policy, validate, depth);
+			error = nla_validate(nla, maxtype, policy,  depth);
 			if (error < 0)
 				return error;
 		}
@@ -148,7 +164,7 @@ nla_validate_parse(struct nlattr *head, int maxtype,int len,
 	return 0;
 }
 
-	static int
+	static inline int
 nla_put(struct mbuf *m, int attrtype, int attrlen, const void *data)
 {
 	struct nlattr *nla;
@@ -166,9 +182,175 @@ nla_put(struct mbuf *m, int attrtype, int attrlen, const void *data)
 	m->m_pkthdr.len += totlen;
 	m->m_len += totlen;
 	hdr->nlmsg_len += NLMSG_ALIGN(NLA_HDRLEN)  + attrlen;
-	
+
 	return 0;
 }
 
+	static inline struct nlattr*
+nla_nest_start(struct mbuf *m, int attrtype) 
+{
+	struct nlattr* nla = (struct nlattr*) nl_data_end_ptr(m);
+	if (nla_put(m, attrtype, 0, NULL) > 0) {
+		return NULL;
+	}
+	return nla;
+}
 
+
+static inline int
+nla_nest_end(struct mbuf *m, struct nlattr *nla) {
+	nla->nla_len = (unsigned char *)nl_data_end_ptr(m) - (unsigned char *) nla;
+	return nla->nla_len;
+}
+
+
+	static inline int
+nla_put_u8(struct mbuf *m, int attrtype, uint8_t value)
+{
+	return nla_put(m, attrtype, sizeof(uint8_t), &value);
+}
+
+	static inline int
+nla_put_u16(struct mbuf *m, int attrtype, uint16_t value)
+{
+	return nla_put(m, attrtype, sizeof(uint16_t), &value);
+}
+
+	static inline int
+nla_put_u32(struct mbuf *m, int attrtype, uint32_t value)
+{
+	return nla_put(m, attrtype, sizeof(uint32_t), &value);
+}
+
+	static inline int
+nla_put_u64(struct mbuf *m, int attrtype, uint64_t value)
+{
+	return nla_put(m, attrtype, sizeof(uint64_t), &value);
+}
+
+	static inline int
+nla_put_s8(struct mbuf *m, int attrtype, int8_t value)
+{
+	return nla_put(m, attrtype, sizeof(int8_t), &value);
+}
+
+	static inline int
+nla_put_s16(struct mbuf *m, int attrtype, int16_t value)
+{
+	return nla_put(m, attrtype, sizeof(int16_t), &value);
+}
+
+	static inline int
+nla_put_s32(struct mbuf *m, int attrtype, int32_t value)
+{
+	return nla_put(m, attrtype, sizeof(int32_t), &value);
+}
+
+	static inline int
+nla_put_s64(struct mbuf *m, int attrtype, int64_t value)
+{
+	return nla_put(m, attrtype, sizeof(int64_t), &value);
+}
+	static inline int
+nla_put_flag(struct mbuf *m, int attrtype)
+{
+	return nla_put(m, attrtype, 0, NULL);
+}
+
+	static inline int
+nla_put_string(struct mbuf *m, int attrtype, const char *str)
+{
+	return nla_put(m, attrtype, strlen(str) + 1, str);
+}
+
+	static inline uint8_t
+nla_get_u8( struct nlattr *nla)
+{
+	return *( uint8_t *) nla_data(nla);
+}
+
+	static inline uint16_t
+nla_get_u16( struct nlattr *nla)
+{
+	return *( uint16_t *) nla_data(nla);
+}
+	static inline uint32_t
+nla_get_u32( struct nlattr *nla)
+{
+	return *( uint32_t *) nla_data(nla);
+}
+
+	static inline uint64_t 
+nla_get_u64( struct nlattr *nla)
+{
+	return *( uint64_t *) nla_data(nla);
+}
+	static inline int8_t
+nla_get_s8( struct nlattr *nla)
+{
+	return *( int8_t *) nla_data(nla);
+}
+
+	static inline int16_t
+nla_get_s16( struct nlattr *nla)
+{
+	return *( int16_t *) nla_data(nla);
+}
+	static inline int32_t
+nla_get_s32( struct nlattr *nla)
+{
+	return *( int32_t *) nla_data(nla);
+}
+
+	static inline int64_t 
+nla_get_s64( struct nlattr *nla)
+{
+	return *( int64_t *) nla_data(nla);
+}
+
+
+static inline int
+nla_get_flag(struct nlattr *nla) {
+	return !!nla;
+}
+
+	static int 
+nla_memcpy(void *dest, struct nlattr *src, int count)
+{
+	int minlen = min(count, nla_len(src));
+
+	memcpy(dest, nla_data(src), minlen);
+	if (count > minlen)
+		memset((char*)dest + minlen, 0, count - minlen);
+
+	return minlen;
+}
+
+
+static int
+nla_strcpy(char *dst, struct nlattr *nla, size_t dstsize) {
+
+	size_t srclen = nla_len(nla);
+	char *src = nla_data(nla);
+	ssize_t ret;
+	size_t len;
+
+
+	if (srclen > 0 && src[srclen - 1] == '\0')
+		srclen--;
+
+	if (srclen >= dstsize) {
+		len = dstsize - 1;
+		ret = E2BIG;
+	} else {
+		len = srclen;
+		ret = len;
+	}
+
+	memcpy(dst, src, len);
+	/* Zero pad end of dst. */
+	memset(dst + len, 0, dstsize - len);
+
+	return ret;
+}
 
