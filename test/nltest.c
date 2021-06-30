@@ -1,6 +1,7 @@
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>	/* bzero */
+#include <strings.h>   /* bzero */
 #include <unistd.h>
 #include <errno.h>
 #include <sys/time.h>
