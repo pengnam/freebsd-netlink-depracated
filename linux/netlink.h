@@ -4,10 +4,15 @@
 #define AF_NETLINK 	38
 #define PF_NETLINK 	38
 
+#include <sys/protosw.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/libkern.h>
+#include <sys/mbuf.h>
+#include <sys/malloc.h>
+
 
 
 struct sockaddr_nl {
@@ -178,23 +183,23 @@ static const uint8_t nla_attr_minlen[NLA_TYPE_MAX+1] = {
 #define MAX_POLICY_RECURSION_DEPTH 10
 
 /*---- nlmsg helpers ----*/
-static inline int
+inline int
 nlmsg_msg_size(int payload) {
 	return NLMSG_HDRLEN + payload;
 }
 
-static inline int
+inline int
 nlmsg_aligned_msg_size(int payload) {
 	return NLMSG_ALIGN(nlmsg_msg_size(payload));
 }
-static inline void *
+inline void *
 nlmsg_data(struct nlmsghdr *nlh)
 {
 	return (unsigned char *) nlh + NLMSG_HDRLEN;
 }
 
 
-static inline int
+inline int
 nlmsg_len(const struct nlmsghdr *nlh)
 {
 	return nlh->nlmsg_len - NLMSG_HDRLEN;
@@ -204,52 +209,23 @@ void *
 nl_data_end_ptr(struct mbuf * m);
 
 
-static inline struct mbuf *
-nlmsg_new(int payload, int flags)
-{
-	int size = nlmsg_aligned_msg_size(payload);
-	struct mbuf * m = m_getm(NULL, size, flags, MT_DATA);
-	//flags specify M_WAITOK or M_WAITNOTOK
-	if (flags & M_ZERO)
-		bzero(mtod(m, caddr_t), size);
-	return m;
-}
 
-static inline int
-nlmsg_end(struct mbuf *m, struct nlmsghdr *nlh) {
-	nlh->nlmsg_len = (char*)nl_data_end_ptr(m) - (char*) nlh;
-	return nlh->nlmsg_len;
-}
+struct mbuf *
+nlmsg_new(int payload, int flags);
+
+int
+nlmsg_end(struct mbuf *m, struct nlmsghdr *nlh); 
 
 
-
-/*TODO: Put inline back*/
+/*TODO: Put back*/
 
 // Places fields in nlmsghdr at the start of buffer 
-static struct nlmsghdr *
-nlmsg_put(struct mbuf* m, int portid, int seq, int type, int payload, int flags)
-{
-	struct nlmsghdr *nlh;
-	int size = nlmsg_msg_size(payload);
-	nlh = mtod(m, struct nlmsghdr *);
-	if (nlh == NULL) {
-		printf("Error at mtod");
-		return NULL;
-	}
-	nlh->nlmsg_type = type;
-	nlh->nlmsg_len = size;
-	nlh->nlmsg_pid = portid;
-	nlh->nlmsg_seq = seq;
-	
-	m->m_len += NLMSG_ALIGN(size);
-	m->m_pkthdr.len += NLMSG_ALIGN(size);
-
-	if (NLMSG_ALIGN(size) - size != 0)
-		memset((char*)nlmsg_data(nlh) + payload, 0, NLMSG_ALIGN(size) - size);
-	return nlh;
-}
+struct nlmsghdr *
+nlmsg_put(struct mbuf* m, int portid, int seq, int type, int payload, int flags);
 
 
 
+void *
+nl_data_from_m(struct mbuf * m);
 
 #endif /*linux_netlink_h*/

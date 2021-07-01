@@ -560,3 +560,52 @@ static moduledata_t netlink_mod = {
 
 DECLARE_MODULE(netlink_disc, netlink_mod, SI_SUB_PSEUDO, SI_ORDER_ANY);
 MODULE_VERSION(netlink, 1);
+
+struct mbuf *
+nlmsg_new(int payload, int flags)
+{
+	int size = nlmsg_aligned_msg_size(payload);
+	struct mbuf * m = m_getm(NULL, size, flags, MT_DATA);
+	//flags specify M_WAITOK or M_WAITNOTOK
+	if (flags & M_ZERO)
+		bzero(mtod(m, caddr_t), size);
+	return m;
+}
+
+int
+nlmsg_end(struct mbuf *m, struct nlmsghdr *nlh) {
+	nlh->nlmsg_len = (char*)nl_data_end_ptr(m) - (char*) nlh;
+	return nlh->nlmsg_len;
+}
+
+
+
+/*TODO: Put back*/
+
+// Places fields in nlmsghdr at the start of buffer 
+struct nlmsghdr *
+nlmsg_put(struct mbuf* m, int portid, int seq, int type, int payload, int flags)
+{
+	struct nlmsghdr *nlh;
+	int size = nlmsg_msg_size(payload);
+	nlh = mtod(m, struct nlmsghdr *);
+	if (nlh == NULL) {
+		printf("Error at mtod");
+		return NULL;
+	}
+	nlh->nlmsg_type = type;
+	nlh->nlmsg_len = size;
+	nlh->nlmsg_pid = portid;
+	nlh->nlmsg_seq = seq;
+	
+	m->m_len += NLMSG_ALIGN(size);
+	m->m_pkthdr.len += NLMSG_ALIGN(size);
+
+	if (NLMSG_ALIGN(size) - size != 0)
+		memset((char*)nlmsg_data(nlh) + payload, 0, NLMSG_ALIGN(size) - size);
+	return nlh;
+}
+void *
+nl_data_from_m(struct mbuf * m) {
+	return mtod(m, void *);
+}
