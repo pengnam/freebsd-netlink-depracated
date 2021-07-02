@@ -20,6 +20,7 @@
 #include <sys/malloc.h>
 #include <sys/systm.h>
 #include <sys/queue.h>
+#include <sys/syslog.h>
 
 
 #include <net/if.h>
@@ -110,6 +111,7 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 		return error;
 	}
 	so->so_options |= SO_USELOOPBACK;
+
 
 	return 0;
 }
@@ -318,7 +320,7 @@ nl_ctloutput(struct socket *so, struct sockopt *sopt) {
  * message length otherwise
  */
 	static int 
-nl_retrieve_message_length(int offset, struct mbuf *m)
+nl_message_length(int offset, struct mbuf *m)
 {
 	D("");
 	int total_length, message_length;
@@ -347,7 +349,9 @@ nl_retrieve_message_length(int offset, struct mbuf *m)
 nl_send_msg(struct mbuf *m)
 {
 	// TODO: phase3: set to isrqueue
-	return 0;
+	D("");
+	D("m at send_msg: %p", m);
+	return netisr_queue(NETISR_NETLINK, m);
 }
 
 
@@ -367,8 +371,9 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 		payload += (nlmsg->nlmsg_len);
 	//TODO: handle cookies
 
-	m = nlmsg_new(payload, M_WAITOK);
-	D("size of new mbuf: %d\n", m->m_len);
+	m = nlmsg_new(payload, M_WAITOK );
+	D("m_len should be 0: %d", m->m_len);
+	D("pkthdr should be 0: %d", m->m_pkthdr.len);
 	if (!m) {
 		//TODO: handle error
 		D("error allocating nlmsg");
@@ -386,9 +391,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	/* In case of error copy the whole message, else just the header */
 	memcpy(&errmsg->msg, nlmsg, err ? nlmsg->nlmsg_len : sizeof(*nlmsg));
 
-	m->m_pkthdr.len = nlmsg_aligned_msg_size(payload);
-	//NOTE: Not implemented as no need for now
-	//nlmsg_end(m, repnlh);
+	nlmsg_end(m, repnlh);
 	nl_send_msg(m);
 }
 
@@ -422,7 +425,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 	//TODO: Check that proto has a valid handler
 	nl_handler handler = nl_handlers[proto];
 	rp = sotonlpcb(so);
-	while ((message_length = nl_retrieve_message_length(offset, m))) {
+	while ((message_length = nl_message_length(offset, m))) {
 		if (buffer_length < message_length) {
 			if ((error = reallocate_memory(&buffer, message_length, &buffer_length))) {
 				return error;
@@ -446,6 +449,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 }
 
 
+
 	static int
 nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
 {
@@ -462,6 +466,7 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
 	rp = sotonlpcb(so);
 	proto = rp->rp.rcb_proto.sp_protocol;
 	//TODO: Decide whether saving it in the mbuf header is the best 
+	_M_NLPROTO(m) = proto;
 	nl_receive_packet(m, so, proto);
 	return 0;
 }
@@ -474,6 +479,14 @@ nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
 	D("");
 	return nl_msg_to_netlink(m, so);
 }
+
+void *
+nl_data_end_ptr(struct mbuf * m) 
+{
+	return mtod(m, unsigned char *) + m->m_len;
+
+}
+
 
 /* netlink usrreqs*/
 static struct pr_usrreqs nl_usrreqs = {
@@ -514,6 +527,8 @@ static struct domain netlinkdomain = {
 
 VNET_DOMAIN_SET(netlink);
 
+//--- module initialization and unloading ---
+
 	static int
 netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 {
@@ -523,6 +538,7 @@ netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 	switch(what) {
 		case MOD_LOAD:
 			D("Loading");
+
 			LIST_INIT(&nl_portid_list);
 			break;
 
@@ -551,3 +567,84 @@ static moduledata_t netlink_mod = {
 
 DECLARE_MODULE(netlink_disc, netlink_mod, SI_SUB_PSEUDO, SI_ORDER_ANY);
 MODULE_VERSION(netlink, 1);
+//--- end module initialization and unloading ---
+
+// ----------------- netisr handling ------------
+SYSCTL_NODE(_net, OID_AUTO, netlink, CTLFLAG_RD, 0, "");
+static int
+raw_input_netlink_cb(struct mbuf *m, struct sockproto *proto,
+    struct sockaddr *src, struct rawcb *rp)
+{
+	D("");
+	struct nlmsghdr *nlh;
+	//TODO: Handle multicast
+	struct nlpcb *nlsk;
+	nlh = mtod(m, struct nlmsghdr *);
+	nlsk =(struct nlpcb *) (rp);
+	// True if portid of socket is equal to 
+	D("result: %d", nlsk->portid == nlh->nlmsg_pid);
+	//NOTE: cb should return 0 on match, and 1 not on match 
+	//Since == returns 1 if equals, != is used
+	return nlsk->portid != nlh->nlmsg_pid;
+}
+
+static struct sockaddr_nl nl_src = {
+.nl_len = sizeof(nl_src),
+	.nl_family = PF_NETLINK,
+	.nl_pid = 0  /* comes from the kernel */ };
+static void
+nl_msg_from_netlink(struct mbuf *m)
+{
+	D("");
+	struct sockproto nl_proto = { .sp_family = PF_NETLINK, .sp_protocol = _M_NLPROTO(m)};
+
+	raw_input_ext(m, &nl_proto, (struct sockaddr *)&nl_src, raw_input_netlink_cb);
+}
+
+struct netisr_handler nlsock_nh = {
+	.nh_name = "nlsock",
+	.nh_handler = nl_msg_from_netlink,
+	.nh_proto = NETISR_NETLINK,
+	.nh_policy = NETISR_POLICY_SOURCE,
+};
+
+static int
+sysctl_netlink_netisr_maxqlen(SYSCTL_HANDLER_ARGS)
+{
+    D("Call: max qlength check");
+    int error, qlimit;
+
+    netisr_getqlimit(&nlsock_nh, &qlimit);
+    error = sysctl_handle_int(oidp, &qlimit, 0, req);
+    if (error || !req->newptr)
+        return (error);
+    if (qlimit < 1)
+        return (EINVAL);
+    return (netisr_setqlimit(&nlsock_nh, qlimit));
+}
+
+SYSCTL_PROC(_net_netlink, OID_AUTO, netisr_maxqlen, CTLTYPE_INT|CTLFLAG_RW,
+    0, 0, sysctl_netlink_netisr_maxqlen, "I",
+    "maximum netlink socket dispatch queue length");
+
+static void
+netlink_init(void)
+{
+    D("Call: netlink_init");
+    int tmp;
+
+    if (TUNABLE_INT_FETCH("net.netlink.netisr_maxqlen", &tmp))
+        nlsock_nh.nh_qlimit = tmp;
+    netisr_register(&nlsock_nh);
+    log(LOG_INFO, "registered netlink netisr\n");
+}
+SYSINIT(nlsock, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, netlink_init, 0);
+
+//PROBLEM LIST:
+//Setting kernel pid as 0 is hacky because we can be sending messages from user to user(?)
+//
+
+
+
+
+
