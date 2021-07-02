@@ -155,5 +155,8 @@ struct nlpcb {
 };
 #define sotonlpcb(so)       ((struct nlpcb *)(so)->so_pcb)
 
+#define _M_NLPROTO(m)  ((m)->m_pkthdr.rsstype)  /* netlink proto, 8 bit */
+#define NETISR_NETLINK  15  // XXX hack, must be unused and < 16
+
 
 #endif
