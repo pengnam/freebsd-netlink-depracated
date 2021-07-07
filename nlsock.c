@@ -1,3 +1,4 @@
+#define VIMAGE 1
 #include <sys/param.h>
 #include <sys/module.h>
 #include <sys/kernel.h>
@@ -24,6 +25,7 @@
 
 
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
 #include <net/netisr.h>
@@ -351,6 +353,18 @@ nl_send_msg(struct mbuf *m)
 	// TODO: phase3: set to isrqueue
 	D("");
 	D("m at send_msg: %p", m);
+
+	#ifdef VIMAGE
+	if (V_loif) {
+		D("V_loif is defined");
+
+		m->m_pkthdr.rcvif = V_loif;
+	 }else {
+		D("V_loif is not defined");
+		m_freem(m);
+		return 1;
+	}
+#endif
 	return netisr_queue(NETISR_NETLINK, m);
 }
 
@@ -632,13 +646,37 @@ netlink_init(void)
 {
     D("Call: netlink_init");
     int tmp;
+#ifdef VIMAGE
+    D("VIMAGE IS DEFINED");
+#endif
+if (IS_DEFAULT_VNET(curvnet)) {
+
 
     if (TUNABLE_INT_FETCH("net.netlink.netisr_maxqlen", &tmp))
-        nlsock_nh.nh_qlimit = tmp;
+	nlsock_nh.nh_qlimit = tmp;
     netisr_register(&nlsock_nh);
     log(LOG_INFO, "registered netlink netisr\n");
 }
-SYSINIT(nlsock, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, netlink_init, 0);
+#ifdef VIMAGE
+	 else {
+		netisr_register_vnet(&nlsock_nh);
+	    log(LOG_INFO, "registered netlink vnet netisr\n");
+	 }
+#endif
+}
+
+VNET_SYSINIT(nlsock, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, netlink_init, 0);
+
+#ifdef VIMAGE
+static void
+vnet_nl_uninit(void)
+{
+
+	netisr_unregister_vnet(&nlsock_nh);
+}
+VNET_SYSUNINIT(vnet_nl_uninit, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD,
+    vnet_nl_uninit, 0);
+#endif
 
 //PROBLEM LIST:
 //Setting kernel pid as 0 is hacky because we can be sending messages from user to user(?)
