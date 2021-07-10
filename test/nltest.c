@@ -56,6 +56,25 @@ do_write(int s, int l)
 	D("send returns %d", ret);
 	return ret;
 }
+/*
+static int
+do_read(int s, int l)
+{
+	int ret;
+	socklen_t srclen;
+	struct sockaddr_nl src;
+	if (s < 0 || l < 1 || l > sizeof(buf)) {
+		D("wrong arguments s %d len %d", s, l);
+		return -1;
+	}
+	srclen = sizeof(src);
+	bzero(&src, sizeof(src));
+	ret = recvfrom(s, buf, l, 0, (struct sockaddr *)&src, &srclen);
+	D("recvfrom %d returns %d from sa_len %d family %d pid %d errno %d",
+		l, ret, srclen, src.nl_len, src.nl_pid, errno);
+	return ret;
+}
+*/
 
 int
 main(int argc, char *argv[])
@@ -71,8 +90,14 @@ main(int argc, char *argv[])
 	s = do_open(x);
 	D("socket returns %d", s);
 	do_write(s, 16);
+	//do_read(x, 16);
+	D("recvmsg");
+	struct msghdr *n;
+	n = (struct msghdr *)buf;
+	t = recvmsg(s, n, 0);
+	D("received %d errno %d", t, errno);
 	close(s);
-	t = do_open(x);
+
 
 	return 0;
 }
