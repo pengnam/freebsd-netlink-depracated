@@ -118,12 +118,6 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	return 0;
 }
 
-	static int
-nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
-{
-	//TODO: Multicast group binding, refer to netlink_bind
-	return (raw_usrreqs.pru_bind(so, nam, td)); /* xxx just EINVAL */
-}
 
 //Lock needs to be claimed
 	static struct
@@ -171,7 +165,7 @@ nl_assign_port(struct nlpcb *rp, uint32_t portid)
 
 
 	static int
-nl_bind_port(struct nlpcb *rp, uint32_t start) 
+nl_autobind_port(struct nlpcb *rp, uint32_t start) 
 {
 	uint32_t portid = start;
 	bool exist;
@@ -192,6 +186,21 @@ retry:
 	return error;
 
 }
+	static int
+nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
+{
+	//TODO: Multicast group binding, refer to netlink_bind in linux
+	struct nlpcb *rp = sotonlpcb(so);
+	struct sockaddr_nl *nla = (struct sockaddr_nl *)nam;
+
+	if (nla->nl_len != sizeof(*nla))
+		return EINVAL;
+
+	return nl_assign_port(rp, nla->nl_pid);
+	
+}
+
+
 
 	static int
 nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
@@ -206,7 +215,7 @@ nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 		return EINVAL;
 
 	rp = sotonlpcb(so);
-	error = nl_bind_port(rp, td->td_proc->p_pid);
+	error = nl_autobind_port(rp, td->td_proc->p_pid);
 	if (error == 0) {
 		rp->dst_portid = nla->nl_pid;/*NOTE: This is not used, refer to comment in PR phase*/
 		//TODO: Handle multicast and socket flags: refer to linux implementation
@@ -352,19 +361,20 @@ nl_send_msg(struct mbuf *m)
 {
 	// TODO: phase3: set to isrqueue
 	D("");
-	D("m at send_msg: %p", m);
 
-	#ifdef VIMAGE
+	D("proto: %d", _M_NLPROTO(m));
+#ifdef VIMAGE
 	if (V_loif) {
 		D("V_loif is defined");
 
 		m->m_pkthdr.rcvif = V_loif;
-	 }else {
+	}else {
 		D("V_loif is not defined");
 		m_freem(m);
 		return 1;
 	}
 #endif
+	D("proto: %d", _M_NLPROTO(m));
 	return netisr_queue(NETISR_NETLINK, m);
 }
 
@@ -386,6 +396,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	//TODO: handle cookies
 
 	m = nlmsg_new(payload, M_WAITOK );
+	_M_NLPROTO(m) = proto;
 	D("m_len should be 0: %d", m->m_len);
 	D("pkthdr should be 0: %d", m->m_pkthdr.len);
 	if (!m) {
@@ -479,6 +490,7 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
 
 	rp = sotonlpcb(so);
 	proto = rp->rp.rcb_proto.sp_protocol;
+	D("proto: %d", proto);
 	//TODO: Decide whether saving it in the mbuf header is the best 
 	_M_NLPROTO(m) = proto;
 	nl_receive_packet(m, so, proto);
@@ -494,7 +506,7 @@ nl_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
 	return nl_msg_to_netlink(m, so);
 }
 
-void *
+	void *
 nl_data_end_ptr(struct mbuf * m) 
 {
 	return mtod(m, unsigned char *) + m->m_len;
@@ -585,9 +597,9 @@ MODULE_VERSION(netlink, 1);
 
 // ----------------- netisr handling ------------
 SYSCTL_NODE(_net, OID_AUTO, netlink, CTLFLAG_RD, 0, "");
-static int
+	static int
 raw_input_netlink_cb(struct mbuf *m, struct sockproto *proto,
-    struct sockaddr *src, struct rawcb *rp)
+		struct sockaddr *src, struct rawcb *rp)
 {
 	D("");
 	struct nlmsghdr *nlh;
@@ -603,14 +615,15 @@ raw_input_netlink_cb(struct mbuf *m, struct sockproto *proto,
 }
 
 static struct sockaddr_nl nl_src = {
-.nl_len = sizeof(nl_src),
+	.nl_len = sizeof(nl_src),
 	.nl_family = PF_NETLINK,
 	.nl_pid = 0  /* comes from the kernel */ };
-static void
+	static void
 nl_msg_from_netlink(struct mbuf *m)
 {
 	D("");
 	struct sockproto nl_proto = { .sp_family = PF_NETLINK, .sp_protocol = _M_NLPROTO(m)};
+	D("proto: %d", _M_NLPROTO(m));
 
 	raw_input_ext(m, &nl_proto, (struct sockaddr *)&nl_src, raw_input_netlink_cb);
 }
@@ -622,60 +635,55 @@ struct netisr_handler nlsock_nh = {
 	.nh_policy = NETISR_POLICY_SOURCE,
 };
 
-static int
+	static int
 sysctl_netlink_netisr_maxqlen(SYSCTL_HANDLER_ARGS)
 {
-    D("Call: max qlength check");
-    int error, qlimit;
+	D("Call: max qlength check");
+	int error, qlimit;
 
-    netisr_getqlimit(&nlsock_nh, &qlimit);
-    error = sysctl_handle_int(oidp, &qlimit, 0, req);
-    if (error || !req->newptr)
-        return (error);
-    if (qlimit < 1)
-        return (EINVAL);
-    return (netisr_setqlimit(&nlsock_nh, qlimit));
+	netisr_getqlimit(&nlsock_nh, &qlimit);
+	error = sysctl_handle_int(oidp, &qlimit, 0, req);
+	if (error || !req->newptr)
+		return (error);
+	if (qlimit < 1)
+		return (EINVAL);
+	return (netisr_setqlimit(&nlsock_nh, qlimit));
 }
 
 SYSCTL_PROC(_net_netlink, OID_AUTO, netisr_maxqlen, CTLTYPE_INT|CTLFLAG_RW,
-    0, 0, sysctl_netlink_netisr_maxqlen, "I",
-    "maximum netlink socket dispatch queue length");
+		0, 0, sysctl_netlink_netisr_maxqlen, "I",
+		"maximum netlink socket dispatch queue length");
 
-static void
+	static void
 netlink_init(void)
 {
-    D("Call: netlink_init");
-    int tmp;
+	D("Call: netlink_init");
+	int tmp;
+	if (IS_DEFAULT_VNET(curvnet)) {
+		if (TUNABLE_INT_FETCH("net.netlink.netisr_maxqlen", &tmp))
+			nlsock_nh.nh_qlimit = tmp;
+		netisr_register(&nlsock_nh);
+		log(LOG_INFO, "registered netlink netisr\n");
+	}
 #ifdef VIMAGE
-    D("VIMAGE IS DEFINED");
-#endif
-if (IS_DEFAULT_VNET(curvnet)) {
-
-
-    if (TUNABLE_INT_FETCH("net.netlink.netisr_maxqlen", &tmp))
-	nlsock_nh.nh_qlimit = tmp;
-    netisr_register(&nlsock_nh);
-    log(LOG_INFO, "registered netlink netisr\n");
-}
-#ifdef VIMAGE
-	 else {
+	else {
 		netisr_register_vnet(&nlsock_nh);
-	    log(LOG_INFO, "registered netlink vnet netisr\n");
-	 }
+		log(LOG_INFO, "registered netlink vnet netisr\n");
+	}
 #endif
 }
 
 VNET_SYSINIT(nlsock, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD, netlink_init, 0);
 
 #ifdef VIMAGE
-static void
+	static void
 vnet_nl_uninit(void)
 {
 
 	netisr_unregister_vnet(&nlsock_nh);
 }
 VNET_SYSUNINIT(vnet_nl_uninit, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD,
-    vnet_nl_uninit, 0);
+		vnet_nl_uninit, 0);
 #endif
 
 //PROBLEM LIST:

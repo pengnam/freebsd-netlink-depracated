@@ -7,7 +7,6 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/libkern.h>
 
 
 struct sockaddr_nl {
