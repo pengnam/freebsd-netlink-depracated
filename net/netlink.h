@@ -103,8 +103,7 @@ nlmsg_new(int payload, int flags)
 	int size = nlmsg_aligned_msg_size(payload);
 	struct mbuf * m = m_getm(NULL, size, flags, MT_DATA);
 	//flags specify M_WAITOK or M_WAITNOTOK
-	if (flags & M_ZERO)
-		bzero(mtod(m, caddr_t), size);
+	bzero(mtod(m, caddr_t), size);
 	return m;
 }
 

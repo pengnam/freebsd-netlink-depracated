@@ -405,7 +405,9 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 		return;
 	}
 
+	D("type-%d;payload-%d;pid-%d;seq-%d", NLMSG_ERROR,payload, portid, nlmsg->nlmsg_seq);
 	repnlh = nlmsg_put( m, portid, nlmsg->nlmsg_seq, NLMSG_ERROR, payload, 0);
+	D("type-%d;len-%d;pid-%d;seq-%d", repnlh->nlmsg_type,  repnlh->nlmsg_len, repnlh->nlmsg_pid, repnlh->nlmsg_seq);
 	if (repnlh == NULL) {
 		D("error putting values in new nlmsg");
 		return;
