@@ -359,7 +359,6 @@ nl_message_length(int offset, struct mbuf *m)
 	static int
 nl_send_msg(struct mbuf *m)
 {
-	// TODO: phase3: set to isrqueue
 	D("");
 
 	D("proto: %d", _M_NLPROTO(m));
