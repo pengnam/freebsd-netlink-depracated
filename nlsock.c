@@ -470,7 +470,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 	struct nlmsghdr hdr;
 	struct nlmsghdr *h = &hdr;
 	struct nlpcb *rp;
-	//TODO: Check that proto has a valid handler
+	//NB: In attach, we verified that proto is valid and has a handler
 	nl_handler handler = nl_handlers[proto];
 	rp = sotonlpcb(so);
 	while ((message_length = nl_message_length(offset, m))) {
