@@ -12,13 +12,15 @@ struct genl_info;
 struct netlink_callback;
 
 struct genl_family {
-	LIST_ENTRY(nl_portid)  next;
-	uint32_t		id;/* private*/
-	uint32_t		hdrsize;
+	LIST_ENTRY(genl_family)  next;
+	unsigned int		id;/* private*/
+	unsigned int		hdrsize;
 	char			name[GENL_NAMSIZ];
-	uint32_t		maxattr;
+	unsigned int            version;
+	unsigned int		maxattr;
 	const struct nla_policy *policy;
-	const struct genl_ops *	ops;
+	struct genl_ops *	ops;
+	unsigned int		n_ops;
 };
 
 struct genl_info {
@@ -58,8 +60,6 @@ struct netlink_callback {
 
 int genl_register_family(struct genl_family *family);
 int genl_unregister_family(const struct genl_family *family);
-void genl_notify(const struct genl_family *family, struct mbuf *m,
-		 struct genl_info *info, uint32_t group, int flags);
 
 void *genlmsg_put(struct mbuf *m, uint32_t portid, uint32_t seq,
 		  const struct genl_family *family, int flags, uint8_t cmd);
@@ -96,17 +96,13 @@ static inline void genlmsg_end(struct mbuf *m, void *hdr)
 	nlmsg_end(m,  (struct nlmsghdr *)((char*)hdr - GENL_HDRLEN - NLMSG_HDRLEN));
 }
 
-static inline int genlmsg_unicast(struct mbuf *m, uint32_t portid)
+static inline int genlmsg_send_msg(struct mbuf *m, uint32_t portid)
 {
-	//TODO
-	return 0;
+ 	struct nlmsghdr * nlmsg = mtod(m, struct nlmsghdr *);
+ 	nlmsg->nlmsg_pid = portid;
+ 	return nl_send_msg(m);
 }
 
-static inline int genlmsg_reply(struct mbuf *m, struct genl_info *info)
-{
-	//return genlmsg_unicast(genl_info_net(info), m, info->snd_portid);
-	return 0;
-}
 
 static inline void *genlmsg_data(struct genlmsghdr *gnlh)
 {

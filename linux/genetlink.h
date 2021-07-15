@@ -11,7 +11,7 @@
 
 struct genlmsghdr {
 	uint8_t	cmd;
-	uint8_t	version;
+	uint8_t	version; /*NOT USED*/
 	uint16_t	reserved;
 };
 

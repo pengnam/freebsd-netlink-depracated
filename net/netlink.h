@@ -30,6 +30,8 @@
 #include <sys/systm.h>
 
 #include <linux/netlink.h>
+
+
 /* Modified from: https://elixir.bootlin.com/linux/latest/source/include/net/netlink.h
  * ========================================================================
  *         Netlink Messages and Attributes Interface 
@@ -236,5 +238,5 @@ static const uint8_t nla_attr_minlen[NLA_TYPE_MAX+1] = {
 
 #define MAX_POLICY_RECURSION_DEPTH 10
 
-
+	int nl_send_msg(struct mbuf *m);
 #endif

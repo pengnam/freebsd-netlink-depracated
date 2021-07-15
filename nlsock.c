@@ -356,7 +356,7 @@ nl_message_length(int offset, struct mbuf *m)
 }
 
 
-	static int
+	int
 nl_send_msg(struct mbuf *m)
 {
 	D("");
@@ -424,7 +424,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	static int 
 reallocate_memory(char** buffer, int length, int* buffer_length)
 {
-	//TODO: Round bufferfer length to 1k?
+	//TODO: Round buffer length to 1k?
 	if (*buffer != NULL) {
 		free(*buffer, M_NETLINK);
 	}
