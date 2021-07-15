@@ -33,12 +33,11 @@
 #include <net/raw_cb.h>
 #include <net/route.h>
 #include <netlink2/net/netlink.h>
+
 MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 
-
-
-//TODO: Change into proto to uint8 proto
 /*---- start debugging macros --luigi */
+//TODO: remove debugging macros
 #define ND(format, ...)
 #define D(format, ...)                                          \
 	do {                                                    \
@@ -49,16 +48,23 @@ MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 				__LINE__, __FUNCTION__, ##__VA_ARGS__);         \
 	} while (0)
 
+
+
+
 nl_handler nl_handlers[NL_MAX_HANDLERS];
-struct mtx nlsock_mtx;
-#define	NLSOCK_LOCK()	mtx_lock(&nlsock_mtx)
-#define	NLSOCK_UNLOCK()	mtx_unlock(&nlsock_mtx)
+
+
 struct nl_portid {
 	LIST_ENTRY(nl_portid)  next;
 	uint32_t id;
 };
 LIST_HEAD(, nl_portid) nl_portid_list = LIST_HEAD_INITIALIZER(nl_portid_list);
 
+struct mtx nlsock_mtx;
+MTX_SYSINIT(nlsock, &nlsock_mtx, "nlsock for handlers or portid list lock", MTX_DEF);
+
+#define	NLSOCK_LOCK()	mtx_lock(&nlsock_mtx)
+#define	NLSOCK_UNLOCK()	mtx_unlock(&nlsock_mtx)
 
 	static int 
 nl_verify_proto(int proto)
@@ -97,7 +103,7 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 	struct nlpcb *rp;
 	int error;
 
-	KASSERT(so->so_pcb == NULL, ("rts_attach: so_pcb != NULL"));
+	KASSERT(so->so_pcb == NULL, ("nl_attach: so_pcb != NULL"));
 
 	error = nl_verify_proto(proto);
 	if (error)
@@ -119,7 +125,10 @@ nl_attach(struct socket *so, int proto, struct thread *td)
 }
 
 
-//Lock needs to be claimed
+/*
+ * Looks up a nl_portid struct based on the @portid. Need to claim nlsock_mtx.
+ * Returns nl_portid pointer if present else NULL
+ */
 	static struct
 nl_portid * nl_portid_lookup(uint32_t portid)
 {
@@ -132,7 +141,10 @@ nl_portid * nl_portid_lookup(uint32_t portid)
 	return NULL;
 }
 
-//Lock needs to be claimed
+/*
+ * Need to claim nlsock_mtx.
+ * Returns true if @portid is present else false
+ */
 	static bool
 nl_portid_exists(uint32_t portid)
 {
@@ -164,6 +176,11 @@ nl_assign_port(struct nlpcb *rp, uint32_t portid)
 }
 
 
+/*
+ * nl_autobind_port binds a unused portid to @rp
+ * @rp: pcb data for the netlink socket
+ * @start: first id to consider
+ */
 	static int
 nl_autobind_port(struct nlpcb *rp, uint32_t start) 
 {
@@ -186,6 +203,7 @@ retry:
 	return error;
 
 }
+
 	static int
 nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 {
@@ -197,9 +215,8 @@ nl_bind(struct socket *so, struct sockaddr *nam, struct thread *td)
 		return EINVAL;
 
 	return nl_assign_port(rp, nla->nl_pid);
-	
-}
 
+}
 
 
 	static int
@@ -221,7 +238,6 @@ nl_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 		//TODO: Handle multicast and socket flags: refer to linux implementation
 		soisconnected(so);
 	}
-	D("Portid: %d, Error: %d", rp->portid, error);
 
 	return error;
 }
@@ -299,6 +315,7 @@ err:
 
 
 /*---- start of protosw struct handlers ----*/
+
 static int
 nl_ctloutput(struct socket *so, struct sockopt *sopt) {
 	D("");
@@ -327,8 +344,7 @@ nl_ctloutput(struct socket *so, struct sockopt *sopt) {
  * Retrieve the message length of a message 
  * @offset: offset in bytes of the start of the next message in mbuf
  *
- * Returns 0 if no valid message length can be found for message at offset,
- * message length otherwise
+ * Returns 0 if no valid message length can be found for message at offset, message length otherwise
  */
 	static int 
 nl_message_length(int offset, struct mbuf *m)
@@ -356,12 +372,15 @@ nl_message_length(int offset, struct mbuf *m)
 }
 
 
+/*
+ * Sends a netlink mbuf using the netisr subsystem.
+ * Assumes that nlmshhdr present with _M_NLPROTO set to matching sproto
+ */
 	int
 nl_send_msg(struct mbuf *m)
 {
 	D("");
 
-	D("proto: %d", _M_NLPROTO(m));
 #ifdef VIMAGE
 	if (V_loif) {
 		D("V_loif is defined");
@@ -373,11 +392,14 @@ nl_send_msg(struct mbuf *m)
 		return 1;
 	}
 #endif
-	D("proto: %d", _M_NLPROTO(m));
 	return netisr_queue(NETISR_NETLINK, m);
 }
 
 
+/*
+ * Sends an ack message
+ * Assumes that nlmshhdr present with _M_NLPROTO set to matching protocol
+ */
 	static void
 nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 {
@@ -432,7 +454,7 @@ reallocate_memory(char** buffer, int length, int* buffer_length)
 	if (*buffer == NULL)  {
 		return ENOMEM;
 	}
-	*buffer_length = length; //TODO: Change if rounding buffer lenght up
+	*buffer_length = length; //TODO: Change if rounding buffer length up
 	return 0;
 }
 /*
@@ -457,11 +479,11 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 				return error;
 			}
 		}
-		D("Considering message with message length(%d) and buffer length(%d)", message_length, buffer_length);
+		D("handling message with message length(%d) and buffer length(%d)", message_length, buffer_length);
 		m_copydata(m, offset, message_length, buffer);
 		h = (struct nlmsghdr *)buffer;
 		if (h->nlmsg_flags & NLM_F_REQUEST && h->nlmsg_type >= NLMSG_MIN_TYPE) {
-			D("inside with msg type: %d", h->nlmsg_type);
+			D("handling message with msg type: %d", h->nlmsg_type);
 
 			error = handler((void *)h);
 		}
@@ -565,7 +587,6 @@ netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 	switch(what) {
 		case MOD_LOAD:
 			D("Loading");
-
 			LIST_INIT(&nl_portid_list);
 			break;
 
@@ -598,6 +619,12 @@ MODULE_VERSION(netlink, 1);
 
 // ----------------- netisr handling ------------
 SYSCTL_NODE(_net, OID_AUTO, netlink, CTLFLAG_RD, 0, "");
+
+/*
+ * Used for netisr to match socket against packet.
+ * Matches according to portid
+ * Returns 0 on match and returns 1 on match.
+ */
 	static int
 raw_input_netlink_cb(struct mbuf *m, struct sockproto *proto,
 		struct sockaddr *src, struct rawcb *rp)
@@ -612,20 +639,23 @@ raw_input_netlink_cb(struct mbuf *m, struct sockproto *proto,
 	D("result: %d", nlsk->portid == nlh->nlmsg_pid);
 	//NOTE: cb should return 0 on match, and 1 not on match 
 	//Since == returns 1 if equals, != is used
-	return nlsk->portid != nlh->nlmsg_pid;
+	if (nlsk->portid == nlh->nlmsg_pid) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
 
 static struct sockaddr_nl nl_src = {
 	.nl_len = sizeof(nl_src),
 	.nl_family = PF_NETLINK,
-	.nl_pid = 0  /* comes from the kernel */ };
+	.nl_pid = 0  /* comes from the kernel */ 
+};
 	static void
 nl_msg_from_netlink(struct mbuf *m)
 {
 	D("");
 	struct sockproto nl_proto = { .sp_family = PF_NETLINK, .sp_protocol = _M_NLPROTO(m)};
-	D("proto: %d", _M_NLPROTO(m));
-
 	raw_input_ext(m, &nl_proto, (struct sockaddr *)&nl_src, raw_input_netlink_cb);
 }
 
