@@ -1,3 +1,4 @@
+//TODO: HACK. to remove after integrating file into kernel
 #define VIMAGE 1
 #include <sys/param.h>
 #include <sys/module.h>
