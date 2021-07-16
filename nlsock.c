@@ -417,6 +417,7 @@ nl_ack(uint8_t proto, uint32_t portid, struct nlmsghdr * nlmsg, int err)
 	//TODO: handle cookies
 
 	m = nlmsg_new(payload, M_WAITOK );
+	//TODO: Use m_tag instead of _M_NLPROTO
 	_M_NLPROTO(m) = proto;
 	D("m_len should be 0: %d", m->m_len);
 	D("pkthdr should be 0: %d", m->m_pkthdr.len);
@@ -515,6 +516,7 @@ nl_msg_to_netlink(struct mbuf *m, struct socket *so, ...)
 	proto = rp->rp.rcb_proto.sp_protocol;
 	D("proto: %d", proto);
 	//TODO: Decide whether saving it in the mbuf header is the best 
+	//TODO: Use m_tag
 	_M_NLPROTO(m) = proto;
 	nl_receive_packet(m, so, proto);
 	return 0;
@@ -655,6 +657,7 @@ static struct sockaddr_nl nl_src = {
 nl_msg_from_netlink(struct mbuf *m)
 {
 	D("");
+	//TODO: Use m_tag instead of _M_NLPROTO
 	struct sockproto nl_proto = { .sp_family = PF_NETLINK, .sp_protocol = _M_NLPROTO(m)};
 	raw_input_ext(m, &nl_proto, (struct sockaddr *)&nl_src, raw_input_netlink_cb);
 }
