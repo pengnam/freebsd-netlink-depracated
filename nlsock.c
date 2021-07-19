@@ -487,7 +487,7 @@ nl_receive_packet(struct mbuf *m, struct socket *so, int proto)
 		if (h->nlmsg_flags & NLM_F_REQUEST && h->nlmsg_type >= NLMSG_MIN_TYPE) {
 			D("handling message with msg type: %d", h->nlmsg_type);
 
-			error = handler((void *)h);
+			error = handler((void *)h, so);
 		}
 
 		if (error != EINTR && (h->nlmsg_flags & NLM_F_ACK || error != 0))

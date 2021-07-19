@@ -68,7 +68,7 @@
 
 //TODO: Change to max netlink number
 #define NL_MAX_HANDLERS 100
-typedef int (*nl_handler)(void *data);
+typedef int (*nl_handler)(void *data, struct socket *so);
 
 int 
 nl_register_or_replace_handler(int proto, nl_handler handle);

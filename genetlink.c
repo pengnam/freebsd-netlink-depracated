@@ -100,7 +100,7 @@ genl_receive_message_family(const struct genl_family *family, struct nlmsghdr* n
 
 // At least has size of nlmsghdr
 	static int
-genl_receive_message(void* data)
+genl_receive_message(void* data, struct socket *so)
 {
 	struct nlmsghdr *nlmsg;
 	struct genl_family *curfamily;
