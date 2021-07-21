@@ -3,7 +3,7 @@
 #define _UAPI__LINUX_RTNETLINK_H
 
 #include <sys/types.h>
-#include <netlink2/net/netlink.h>
+#include <netlink/net/netlink.h>
 #include <net/if.h>
 #include <net/if_types.h>
 #include <net/if_var.h>

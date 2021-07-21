@@ -33,7 +33,7 @@
 #include <net/vnet.h>
 #include <net/raw_cb.h>
 #include <net/route.h>
-#include <netlink2/net/netlink.h>
+#include <netlink/net/netlink.h>
 
 MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 
